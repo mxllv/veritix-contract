@@ -10,10 +10,14 @@ pub fn is_frozen(e: &Env, addr: &Address) -> bool {
 
 pub fn freeze_account(e: &Env, admin: Address, target: Address) {
     admin.require_auth();
-    e.storage().persistent().set(&DataKey::Freeze(target), &true);
+    e.storage()
+        .persistent()
+        .set(&DataKey::Freeze(target), &true);
 }
 
 pub fn unfreeze_account(e: &Env, admin: Address, target: Address) {
     admin.require_auth();
-    e.storage().persistent().set(&DataKey::Freeze(target), &false);
+    e.storage()
+        .persistent()
+        .set(&DataKey::Freeze(target), &false);
 }

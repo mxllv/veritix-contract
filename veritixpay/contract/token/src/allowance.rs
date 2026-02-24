@@ -6,8 +6,12 @@ pub fn read_allowance(e: &Env, from: Address, spender: Address) -> AllowanceValu
         from: from.clone(),
         spender: spender.clone(),
     });
-    
-    if let Some(allowance) = e.storage().persistent().get::<DataKey, AllowanceValue>(&key) {
+
+    if let Some(allowance) = e
+        .storage()
+        .persistent()
+        .get::<DataKey, AllowanceValue>(&key)
+    {
         if allowance.expiration_ledger < e.ledger().sequence() {
             AllowanceValue {
                 amount: 0,
@@ -53,15 +57,15 @@ pub fn write_allowance(
 
 pub fn spend_allowance(e: &Env, from: Address, spender: Address, amount: i128) {
     let allowance = read_allowance(e, from.clone(), spender.clone());
-    
+
     if allowance.expiration_ledger < e.ledger().sequence() {
         panic!("allowance is expired");
     }
-    
+
     if allowance.amount < amount {
         panic!("insufficient allowance");
     }
-    
+
     write_allowance(
         e,
         from,

@@ -26,6 +26,7 @@ pub enum DataKey {
     Allowance(AllowanceDataKey),
     Balance(Address),
     Metadata,
+    TotalSupply,
     EscrowCount,
     Escrow(u32),
     RecurringCount,
@@ -34,11 +35,11 @@ pub enum DataKey {
     Split(u32),
     DisputeCount,
     Dispute(u32),
-    
+
     // --- Added for Multi-Escrow (Issue #36) ---
     MultiEscrowCount,
     MultiEscrow(u32),
-    
+
     // --- Added for Freeze Functionality (Issue #35) ---
     Freeze(Address),
 }

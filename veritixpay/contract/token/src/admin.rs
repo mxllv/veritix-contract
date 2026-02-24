@@ -2,32 +2,32 @@ use soroban_sdk::{Address, Env};
 
 use crate::storage_types::DataKey;
 
-pub fn read_administrator(e: &Env) -> Address {
+// --- Core admin storage helpers ---
+
+pub fn read_admin(e: &Env) -> Address {
     e.storage().instance().get(&DataKey::Admin).unwrap()
 }
 
-pub fn write_administrator(e: &Env, id: &Address) {
+pub fn write_admin(e: &Env, id: &Address) {
     e.storage().instance().set(&DataKey::Admin, id);
 }
 
-pub fn has_administrator(e: &Env) -> bool {
+pub fn has_admin(e: &Env) -> bool {
     e.storage().instance().has(&DataKey::Admin)
 }
 
+/// Verifies that `admin` is the current admin and has authorized the call.
 pub fn check_admin(e: &Env, admin: &Address) {
     admin.require_auth();
-    let stored = read_administrator(e);
+    let stored = read_admin(e);
     if admin != &stored {
         panic!("not authorized: caller is not the admin");
     }
 }
 
-
+/// Rotates the stored admin to `new_admin`. Must be called by the current admin.
 pub fn transfer_admin(e: &Env, new_admin: Address) {
-    // 1. Verify that the current admin is authorizing this call
     let current_admin = read_admin(e);
     current_admin.require_auth();
-
-    // 2. Write the new admin to persistent storage
     write_admin(e, &new_admin);
 }
