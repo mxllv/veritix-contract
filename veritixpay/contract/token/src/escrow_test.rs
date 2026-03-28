@@ -1,8 +1,9 @@
-use soroban_sdk::{testutils::Address as _, Address, Env};
+use soroban_sdk::{symbol_short, testutils::Address as _, vec, Address, Env, IntoVal};
 
 use crate::balance::read_balance;
 use crate::contract::VeritixToken;
 use crate::escrow::{create_escrow, get_escrow, refund_escrow, release_escrow};
+use crate::storage_types::{read_counter, DataKey};
 
 // Helper to create a fresh Env with mock auth enabled.
 fn setup_env() -> Env {
@@ -19,11 +20,12 @@ fn test_create_escrow_stores_record() {
     let beneficiary = Address::generate(&e);
     let amount = 1_000i128;
 
+    let mut escrow_id: u32 = 0;
     e.as_contract(&contract_id, || {
         // Pre-fund depositor so spend_balance in create_escrow succeeds.
         crate::balance::receive_balance(&e, depositor.clone(), amount);
 
-        let escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), amount);
+        escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), amount);
         let record = get_escrow(&e, escrow_id);
 
         assert_eq!(record.id, escrow_id);
@@ -33,6 +35,18 @@ fn test_create_escrow_stores_record() {
         assert!(!record.released);
         assert!(!record.refunded);
     });
+
+    assert_eq!(
+        e.events().all(),
+        vec![
+            &e,
+            (
+                contract_id.clone(),
+                (symbol_short!("escrow"), symbol_short!("created"), depositor.clone()),
+                (beneficiary.clone(), amount).into_val(&e)
+            )
+        ]
+    );
 }
 
 #[test]
@@ -65,7 +79,7 @@ fn test_release_escrow_happy_path() {
 
         // After release: contract should lose amount, beneficiary gains amount.
         let after_contract_balance = read_balance(&e, contract_addr);
-        let after_beneficiary_balance = read_balance(&e, beneficiary);
+        let after_beneficiary_balance = read_balance(&e, beneficiary.clone());
 
         assert_eq!(before_contract_balance - amount, after_contract_balance);
         assert_eq!(
@@ -73,6 +87,23 @@ fn test_release_escrow_happy_path() {
             after_beneficiary_balance
         );
     });
+
+    assert_eq!(
+        e.events().all(),
+        vec![
+            &e,
+            (
+                contract_id.clone(),
+                (symbol_short!("escrow"), symbol_short!("created"), depositor.clone()),
+                (beneficiary.clone(), amount).into_val(&e)
+            ),
+            (
+                contract_id.clone(),
+                (symbol_short!("escrow"), symbol_short!("released"), escrow_id),
+                beneficiary.into_val(&e)
+            )
+        ]
+    );
 }
 
 #[test]
@@ -87,7 +118,7 @@ fn test_refund_escrow_happy_path() {
     let mut escrow_id: u32 = 0;
     e.as_contract(&contract_id, || {
         crate::balance::receive_balance(&e, depositor.clone(), amount);
-        escrow_id = create_escrow(&e, depositor.clone(), beneficiary, amount);
+        escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), amount);
     });
 
     // Second call: refund the escrow and check balances.
@@ -103,10 +134,53 @@ fn test_refund_escrow_happy_path() {
         assert!(!record.released);
 
         let after_contract_balance = read_balance(&e, contract_addr);
-        let after_depositor_balance = read_balance(&e, depositor);
+        let after_depositor_balance = read_balance(&e, depositor.clone());
 
         assert_eq!(before_contract_balance - amount, after_contract_balance);
         assert_eq!(before_depositor_balance + amount, after_depositor_balance);
+    });
+
+    assert_eq!(
+        e.events().all(),
+        vec![
+            &e,
+            (
+                contract_id.clone(),
+                (symbol_short!("escrow"), symbol_short!("created"), depositor.clone()),
+                (beneficiary.clone(), amount).into_val(&e)
+            ),
+            (
+                contract_id.clone(),
+                (symbol_short!("escrow"), symbol_short!("refunded"), escrow_id),
+                depositor.into_val(&e)
+            )
+        ]
+    );
+}
+
+#[test]
+fn test_create_escrow_increments_counter() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let beneficiary = Address::generate(&e);
+    let amount = 1_000i128;
+
+    let depositor_one = Address::generate(&e);
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, depositor_one.clone(), amount);
+        let escrow_id = create_escrow(&e, depositor_one.clone(), beneficiary.clone(), amount);
+        assert_eq!(escrow_id, 1);
+    });
+
+    let depositor_two = Address::generate(&e);
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, depositor_two.clone(), amount);
+        let escrow_id = create_escrow(&e, depositor_two.clone(), beneficiary.clone(), amount);
+        assert_eq!(escrow_id, 2);
+    });
+
+    e.as_contract(&contract_id, || {
+        assert_eq!(read_counter(&e, &DataKey::EscrowCount), 2);
     });
 }
 

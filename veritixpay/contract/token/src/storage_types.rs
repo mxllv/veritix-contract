@@ -1,4 +1,5 @@
 use soroban_sdk::{contracttype, Address, Env, IntoVal, TryFromVal, Val};
+use soroban_sdk::{contracttype, Address, Env};
 
 pub const BALANCE_LIFETIME_THRESHOLD: u32 = 518400; // ~30 days
 pub const BALANCE_BUMP_AMOUNT: u32 = 535000;
@@ -59,4 +60,12 @@ where
     T: IntoVal<Env, Val>,
 {
     e.storage().persistent().set(key, value);
+pub fn read_counter(e: &Env, key: &DataKey) -> u32 {
+    e.storage().instance().get(key).unwrap_or(0)
+}
+
+pub fn increment_counter(e: &Env, key: &DataKey) -> u32 {
+    let next = read_counter(e, key) + 1;
+    e.storage().instance().set(key, &next);
+    next
 }
