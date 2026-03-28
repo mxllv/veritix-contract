@@ -277,7 +277,6 @@ fn test_expired_allowance_panics() {
 }
 
 #[test]
-#[ignore = "Panics abort in this Soroban test configuration"]
 fn test_admin_and_freeze_views_follow_state_changes() {
     let (env, admin, user) = setup();
     env.mock_all_auths();
@@ -345,6 +344,30 @@ fn test_clawback_reduces_total_supply() {
 
     assert_eq!(client.balance(&user), 700i128);
     assert_eq!(client.total_supply(), 700i128);
+}
+
+#[test]
+fn test_admin_freeze_and_clawback_smoke_via_client() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let new_admin = Address::generate(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1_000i128);
+
+    client.set_admin(&new_admin);
+    assert_eq!(client.admin(), new_admin);
+
+    client.freeze(&user);
+    assert!(client.is_frozen(&user));
+
+    client.unfreeze(&user);
+    assert!(!client.is_frozen(&user));
+
+    client.clawback(&new_admin, &user, &250i128);
+    assert_eq!(client.balance(&user), 750i128);
+    assert_eq!(client.total_supply(), 750i128);
 }
 
 #[test]
