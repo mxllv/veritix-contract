@@ -8,6 +8,7 @@ use crate::freeze::{freeze_account, is_frozen as read_frozen_status, unfreeze_ac
 use crate::metadata::{
     read_decimal, read_name, read_symbol, validate_metadata, write_metadata, TokenMetadata,
 };
+use crate::validation::{require_not_frozen_account, require_positive_amount};
 use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String};
 
 #[contract]
@@ -43,6 +44,7 @@ impl VeritixToken {
     /// Admin-only. Reclaims tokens from an address and destroys them.
     pub fn clawback(e: Env, admin: Address, from: Address, amount: i128) {
         check_admin(&e, &admin);
+        require_positive_amount(amount);
 
         // Deduct balance without redistributing, effectively burning the tokens
         spend_balance(&e, from.clone(), amount);
@@ -72,6 +74,7 @@ impl VeritixToken {
     /// Admin-only. Mints new tokens to a specific address.
     pub fn mint(e: Env, admin: Address, to: Address, amount: i128) {
         check_admin(&e, &admin);
+        require_positive_amount(amount);
         receive_balance(&e, to.clone(), amount);
         increase_supply(&e, amount);
         e.events().publish((symbol_short!("mint"), to), amount);
@@ -79,9 +82,8 @@ impl VeritixToken {
 
     /// Caller burns their own tokens.
     pub fn burn(e: Env, from: Address, amount: i128) {
-        if read_frozen_status(&e, &from) {
-            panic!("account frozen");
-        }
+        require_not_frozen_account(&e, &from);
+        require_positive_amount(amount);
         from.require_auth();
         spend_balance(&e, from.clone(), amount);
         decrease_supply(&e, amount);
@@ -90,9 +92,8 @@ impl VeritixToken {
 
     /// Spender burns tokens from an account using their allowance.
     pub fn burn_from(e: Env, spender: Address, from: Address, amount: i128) {
-        if read_frozen_status(&e, &from) {
-            panic!("account frozen");
-        }
+        require_not_frozen_account(&e, &from);
+        require_positive_amount(amount);
         spender.require_auth();
         spend_allowance(&e, from.clone(), spender.clone(), amount);
         spend_balance(&e, from.clone(), amount);
@@ -104,9 +105,8 @@ impl VeritixToken {
 
     /// Standard token transfer between two addresses.
     pub fn transfer(e: Env, from: Address, to: Address, amount: i128) {
-        if read_frozen_status(&e, &from) {
-            panic!("account frozen");
-        }
+        require_not_frozen_account(&e, &from);
+        require_positive_amount(amount);
         from.require_auth();
         spend_balance(&e, from.clone(), amount);
         receive_balance(&e, to.clone(), amount);
@@ -116,9 +116,8 @@ impl VeritixToken {
 
     /// Transfer tokens on behalf of a user via allowance.
     pub fn transfer_from(e: Env, spender: Address, from: Address, to: Address, amount: i128) {
-        if read_frozen_status(&e, &from) {
-            panic!("account frozen");
-        }
+        require_not_frozen_account(&e, &from);
+        require_positive_amount(amount);
         spender.require_auth();
         spend_allowance(&e, from.clone(), spender.clone(), amount);
         spend_balance(&e, from.clone(), amount);

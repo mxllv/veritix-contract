@@ -1,6 +1,7 @@
 use soroban_sdk::{contracttype, Env, String};
 
 use crate::storage_types::DataKey;
+use crate::validation::{require_decimal_within_max, require_nonempty_string};
 
 pub const MAX_DECIMALS: u32 = 18;
 
@@ -21,17 +22,9 @@ pub fn write_metadata(e: &Env, metadata: TokenMetadata) {
 }
 
 pub fn validate_metadata(metadata: &TokenMetadata) {
-    if metadata.name.len() == 0 {
-        panic!("name cannot be empty");
-    }
-
-    if metadata.symbol.len() == 0 {
-        panic!("symbol cannot be empty");
-    }
-
-    if metadata.decimal > MAX_DECIMALS {
-        panic!("decimal exceeds maximum");
-    }
+    require_nonempty_string(&metadata.name, "name cannot be empty");
+    require_nonempty_string(&metadata.symbol, "symbol cannot be empty");
+    require_decimal_within_max(metadata.decimal, MAX_DECIMALS);
 }
 
 pub fn read_decimal(e: &Env) -> u32 {

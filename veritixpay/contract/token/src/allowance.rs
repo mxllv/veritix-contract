@@ -1,4 +1,5 @@
 use crate::storage_types::{AllowanceDataKey, AllowanceValue, DataKey};
+use crate::validation::{require_current_or_future_ledger, require_non_negative_amount};
 use soroban_sdk::{Address, Env};
 
 pub fn read_allowance(e: &Env, from: Address, spender: Address) -> AllowanceValue {
@@ -37,9 +38,8 @@ pub fn write_allowance(
     amount: i128,
     expiration_ledger: u32,
 ) {
-    if expiration_ledger < e.ledger().sequence() {
-        panic!("expiration ledger is in the past");
-    }
+    require_non_negative_amount(amount);
+    require_current_or_future_ledger(e.ledger().sequence(), expiration_ledger);
 
     let key = DataKey::Allowance(AllowanceDataKey {
         from: from.clone(),

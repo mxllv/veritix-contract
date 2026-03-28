@@ -2,6 +2,7 @@ use crate::balance::{receive_balance, spend_balance};
 use crate::storage_types::{
     increment_counter, read_persistent_record, write_persistent_record, DataKey,
 };
+use crate::validation::require_positive_amount;
 use soroban_sdk::{contracttype, Address, Env, Symbol};
 
 #[contracttype]
@@ -17,6 +18,8 @@ pub struct EscrowRecord {
 
 // Lock funds from depositor into escrow. Returns the escrow ID.
 pub fn create_escrow(e: &Env, depositor: Address, beneficiary: Address, amount: i128) -> u32 {
+    require_positive_amount(amount);
+
     // Auth: depositor must authorize locking funds
     depositor.require_auth();
 

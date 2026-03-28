@@ -1,4 +1,5 @@
 use crate::storage_types::{DataKey, BALANCE_BUMP_AMOUNT, BALANCE_LIFETIME_THRESHOLD};
+use crate::validation::require_not_frozen_account;
 use soroban_sdk::{Address, Env};
 
 /// Returns the balance for an address, or 0 if not set
@@ -16,9 +17,7 @@ pub fn read_balance(e: &Env, addr: Address) -> i128 {
 
 /// Adds amount to address balance
 pub fn receive_balance(e: &Env, addr: Address, amount: i128) {
-    if crate::freeze::is_frozen(e, &addr) {
-        panic!("account frozen");
-    }
+    require_not_frozen_account(e, &addr);
 
     let key = DataKey::Balance(addr.clone());
     let current_balance = read_balance(e, addr); // TTL is extended here

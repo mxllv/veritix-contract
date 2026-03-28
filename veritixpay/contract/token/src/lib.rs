@@ -11,6 +11,7 @@ pub mod escrow;
 pub mod freeze;
 pub mod metadata;
 pub mod storage_types;
+pub mod validation;
 
 mod contract;
 
