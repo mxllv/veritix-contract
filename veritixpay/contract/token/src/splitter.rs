@@ -1,4 +1,5 @@
 use crate::balance::{receive_balance, spend_balance};
+use crate::storage_types::{read_persistent_record, write_persistent_record, DataKey};
 use crate::storage_types::{increment_counter, DataKey};
 use soroban_sdk::{contracttype, Address, Env, Symbol, Vec};
 
@@ -52,7 +53,7 @@ pub fn create_split(
         total_amount,
         distributed: false,
     };
-    e.storage().persistent().set(&DataKey::Split(count), &record);
+    write_persistent_record(e, &DataKey::Split(count), &record);
 
     count
 }
@@ -95,7 +96,7 @@ pub fn distribute(e: &Env, caller: Address, split_id: u32) {
 
     // 3. Mark distributed
     record.distributed = true;
-    e.storage().persistent().set(&DataKey::Split(split_id), &record);
+    write_persistent_record(e, &DataKey::Split(split_id), &record);
 
     // 4. Emit Observability Event
     e.events().publish(
@@ -105,6 +106,7 @@ pub fn distribute(e: &Env, caller: Address, split_id: u32) {
 }
 
 pub fn get_split(e: &Env, split_id: u32) -> SplitRecord {
+    read_persistent_record(e, &DataKey::Split(split_id), "split record not found")
     e.storage()
         .persistent()
         .get(&DataKey::Split(split_id))

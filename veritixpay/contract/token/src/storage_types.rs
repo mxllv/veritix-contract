@@ -1,3 +1,4 @@
+use soroban_sdk::{contracttype, Address, Env, IntoVal, TryFromVal, Val};
 use soroban_sdk::{contracttype, Address, Env};
 
 pub const BALANCE_LIFETIME_THRESHOLD: u32 = 518400; // ~30 days
@@ -44,6 +45,21 @@ pub enum DataKey {
     Freeze(Address),
 }
 
+pub fn read_persistent_record<T>(e: &Env, key: &DataKey, missing_message: &'static str) -> T
+where
+    T: TryFromVal<Env, Val>,
+{
+    e.storage()
+        .persistent()
+        .get::<DataKey, T>(key)
+        .unwrap_or_else(|| panic!("{}", missing_message))
+}
+
+pub fn write_persistent_record<T>(e: &Env, key: &DataKey, value: &T)
+where
+    T: IntoVal<Env, Val>,
+{
+    e.storage().persistent().set(key, value);
 pub fn read_counter(e: &Env, key: &DataKey) -> u32 {
     e.storage().instance().get(key).unwrap_or(0)
 }
