@@ -53,6 +53,8 @@ Use the standard makefile commands to interact with the contract:
 * `make test-logs`: Runs the test suite with the `release-with-logs` profile to mirror the debug-oriented build configuration during local investigation.
 * `make clean`: Removes the `target/` directory and compiled binaries.
 
+Snapshot policy: committed files under `contract/token/test_snapshots/` should correspond only to active, non-ignored tests. When adding or changing an active test that emits a snapshot artifact, update the matching snapshot file in the same change and remove snapshot files for ignored or deleted tests.
+
 ## Authorization Model
 Security is enforced natively using the Soroban SDK. Every state-changing function requires the caller to authorize the transaction, invoked via `address.require_auth()`. Administrative functions rely on `check_admin(&e)`, which verifies the caller against the stored `DataKey::Admin` address. Allowances remain valid when `expiration_ledger == current ledger sequence` and expire only once the ledger advances past that boundary. To prevent state archiving, storage TTL (Time To Live) is bumped automatically during `read_balance` and `read_allowance` calls, ensuring active accounts remain on the ledger.
 

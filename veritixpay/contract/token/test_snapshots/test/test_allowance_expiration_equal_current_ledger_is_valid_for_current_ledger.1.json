@@ -78,11 +78,11 @@
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 500
+                    "lo": 250
                   }
                 },
                 {
-                  "u32": 1000
+                  "u32": 0
                 }
               ]
             }
@@ -112,7 +112,7 @@
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 300
+                    "lo": 250
                   }
                 }
               ]
@@ -241,105 +241,6 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "Allowance"
-                },
-                {
-                  "map": [
-                    {
-                      "key": {
-                        "symbol": "from"
-                      },
-                      "val": {
-                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                      }
-                    },
-                    {
-                      "key": {
-                        "symbol": "spender"
-                      },
-                      "val": {
-                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                      }
-                    }
-                  ]
-                }
-              ]
-            },
-            "durability": "persistent"
-          }
-        },
-        [
-          {
-            "last_modified_ledger_seq": 0,
-            "data": {
-              "contract_data": {
-                "ext": "v0",
-                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
-                "key": {
-                  "vec": [
-                    {
-                      "symbol": "Allowance"
-                    },
-                    {
-                      "map": [
-                        {
-                          "key": {
-                            "symbol": "from"
-                          },
-                          "val": {
-                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                          }
-                        },
-                        {
-                          "key": {
-                            "symbol": "spender"
-                          },
-                          "val": {
-                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                          }
-                        }
-                      ]
-                    }
-                  ]
-                },
-                "durability": "persistent",
-                "val": {
-                  "map": [
-                    {
-                      "key": {
-                        "symbol": "amount"
-                      },
-                      "val": {
-                        "i128": {
-                          "hi": 0,
-                          "lo": 200
-                        }
-                      }
-                    },
-                    {
-                      "key": {
-                        "symbol": "expiration_ledger"
-                      },
-                      "val": {
-                        "u32": 1000
-                      }
-                    }
-                  ]
-                }
-              }
-            },
-            "ext": "v0"
-          },
-          4095
-        ]
-      ],
-      [
-        {
-          "contract_data": {
-            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
-            "key": {
-              "vec": [
-                {
                   "symbol": "Balance"
                 },
                 {
@@ -371,7 +272,7 @@
                 "val": {
                   "i128": {
                     "hi": 0,
-                    "lo": 700
+                    "lo": 750
                   }
                 }
               }
@@ -419,7 +320,7 @@
                 "val": {
                   "i128": {
                     "hi": 0,
-                    "lo": 300
+                    "lo": 250
                   }
                 }
               }
@@ -758,11 +659,11 @@
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 500
+                    "lo": 250
                   }
                 },
                 {
-                  "u32": 1000
+                  "u32": 0
                 }
               ]
             }
@@ -792,7 +693,7 @@
             "data": {
               "i128": {
                 "hi": 0,
-                "lo": 500
+                "lo": 250
               }
             }
           }
@@ -853,7 +754,7 @@
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 300
+                    "lo": 250
                   }
                 }
               ]
@@ -884,7 +785,7 @@
             "data": {
               "i128": {
                 "hi": 0,
-                "lo": 300
+                "lo": 250
               }
             }
           }
@@ -957,7 +858,7 @@
             "data": {
               "i128": {
                 "hi": 0,
-                "lo": 300
+                "lo": 250
               }
             }
           }
@@ -1016,7 +917,7 @@
             "data": {
               "i128": {
                 "hi": 0,
-                "lo": 200
+                "lo": 0
               }
             }
           }
