@@ -11,9 +11,13 @@ fn setup() -> (Env, Address, Address) {
     (env, admin, user)
 }
 
-fn create_client(env: &Env) -> VeritixTokenClient<'_> {
+fn create_client_with_id(env: &Env) -> (Address, VeritixTokenClient<'_>) {
     let contract_id = env.register_contract(None, VeritixToken);
-    VeritixTokenClient::new(env, &contract_id)
+    (contract_id.clone(), VeritixTokenClient::new(env, &contract_id))
+}
+
+fn create_client(env: &Env) -> VeritixTokenClient<'_> {
+    create_client_with_id(env).1
 }
 
 fn initialize_client(client: &VeritixTokenClient<'_>, env: &Env, admin: &Address, decimal: u32) {
@@ -216,6 +220,41 @@ fn test_approve_and_spend_allowance() {
 }
 
 #[test]
+fn test_transfer_from_spends_full_allowance_and_clears_it() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let spender = Address::generate(&env);
+    let receiver = Address::generate(&env);
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1000i128);
+    client.approve(&user, &spender, &400i128, &1000u32);
+    client.transfer_from(&spender, &user, &receiver, &400i128);
+
+    assert_eq!(client.balance(&receiver), 400i128);
+    assert_eq!(client.allowance(&user, &spender), 0i128);
+}
+
+#[test]
+fn test_allowance_expiration_equal_current_ledger_is_valid_for_current_ledger() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let spender = Address::generate(&env);
+    let receiver = Address::generate(&env);
+    let current_ledger = env.ledger().sequence();
+
+    initialize_client(&client, &env, &admin, 7);
+    client.mint(&admin, &user, &1000i128);
+    client.approve(&user, &spender, &250i128, &current_ledger);
+    client.transfer_from(&spender, &user, &receiver, &250i128);
+
+    assert_eq!(client.balance(&receiver), 250i128);
+    assert_eq!(client.allowance(&user, &spender), 0i128);
+}
+
+#[test]
 #[ignore = "Panics abort in this Soroban test configuration"]
 fn test_expired_allowance_panics() {
     let (env, admin, user) = setup();
@@ -235,22 +274,52 @@ fn test_expired_allowance_panics() {
 fn test_admin_and_freeze_views_follow_state_changes() {
     let (env, admin, user) = setup();
     env.mock_all_auths();
-    let client = create_client(&env);
+    let (contract_id, client) = create_client_with_id(&env);
     let new_admin = Address::generate(&env);
 
     initialize_client(&client, &env, &admin, 7);
 
     assert_eq!(client.admin(), admin);
     assert!(!client.is_frozen(&user));
+    assert_eq!(
+        env.as_contract(&contract_id, || {
+            env.storage()
+                .persistent()
+                .get::<crate::storage_types::DataKey, bool>(&crate::storage_types::DataKey::Freeze(
+                    user.clone(),
+                ))
+        }),
+        None
+    );
 
     client.set_admin(&new_admin);
     assert_eq!(client.admin(), new_admin);
 
     client.freeze(&user);
     assert!(client.is_frozen(&user));
+    assert_eq!(
+        env.as_contract(&contract_id, || {
+            env.storage()
+                .persistent()
+                .get::<crate::storage_types::DataKey, bool>(&crate::storage_types::DataKey::Freeze(
+                    user.clone(),
+                ))
+        }),
+        Some(true)
+    );
 
     client.unfreeze(&user);
     assert!(!client.is_frozen(&user));
+    assert_eq!(
+        env.as_contract(&contract_id, || {
+            env.storage()
+                .persistent()
+                .get::<crate::storage_types::DataKey, bool>(&crate::storage_types::DataKey::Freeze(
+                    user.clone(),
+                ))
+        }),
+        None
+    );
 }
 
 #[test]
