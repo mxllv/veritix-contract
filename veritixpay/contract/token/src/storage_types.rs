@@ -36,11 +36,11 @@ pub enum DataKey {
     DisputeCount,
     Dispute(u32),
 
-    // --- Added for Multi-Escrow (Issue #36) ---
+    // Reserved for future multi-escrow support.
     MultiEscrowCount,
     MultiEscrow(u32),
 
-    // --- Added for Freeze Functionality (Issue #35) ---
+    // Stores per-address freeze status.
     Freeze(Address),
 }
 
