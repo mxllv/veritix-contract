@@ -3,6 +3,7 @@ use soroban_sdk::{symbol_short, testutils::Address as _, vec, Address, Env, Into
 use crate::balance::read_balance;
 use crate::contract::VeritixToken;
 use crate::escrow::{create_escrow, get_escrow, refund_escrow, release_escrow};
+use crate::storage_types::{read_counter, DataKey};
 
 // Helper to create a fresh Env with mock auth enabled.
 fn setup_env() -> Env {
@@ -155,6 +156,32 @@ fn test_refund_escrow_happy_path() {
             )
         ]
     );
+}
+
+#[test]
+fn test_create_escrow_increments_counter() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let beneficiary = Address::generate(&e);
+    let amount = 1_000i128;
+
+    let depositor_one = Address::generate(&e);
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, depositor_one.clone(), amount);
+        let escrow_id = create_escrow(&e, depositor_one.clone(), beneficiary.clone(), amount);
+        assert_eq!(escrow_id, 1);
+    });
+
+    let depositor_two = Address::generate(&e);
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, depositor_two.clone(), amount);
+        let escrow_id = create_escrow(&e, depositor_two.clone(), beneficiary.clone(), amount);
+        assert_eq!(escrow_id, 2);
+    });
+
+    e.as_contract(&contract_id, || {
+        assert_eq!(read_counter(&e, &DataKey::EscrowCount), 2);
+    });
 }
 
 #[test]
