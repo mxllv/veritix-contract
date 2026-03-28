@@ -25,7 +25,7 @@ jobs:
         with:
           toolchain: "1.84.0"
           targets: wasm32-unknown-unknown
-          components: rustfmt
+          components: rustfmt, clippy
 
       - name: Cache Cargo registry and build artifacts
         uses: Swatinem/rust-cache@v2
@@ -52,6 +52,9 @@ jobs:
       - name: Check Formatting
         # Uses cargo fmt directly, or make fmt if it passes the args in your Makefile
         run: cargo fmt -- --check
+
+      - name: Run Clippy
+        run: cargo clippy --lib -- -D warnings
 
       - name: Build Contract
         run: make build
