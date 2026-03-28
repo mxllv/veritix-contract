@@ -19,5 +19,5 @@ pub fn unfreeze_account(e: &Env, admin: Address, target: Address) {
     admin.require_auth();
     e.storage()
         .persistent()
-        .set(&DataKey::Freeze(target), &false);
+        .remove(&DataKey::Freeze(target));
 }

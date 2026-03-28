@@ -11,9 +11,13 @@ fn setup() -> (Env, Address, Address) {
     (env, admin, user)
 }
 
-fn create_client(env: &Env) -> VeritixTokenClient<'_> {
+fn create_client_with_id(env: &Env) -> (Address, VeritixTokenClient<'_>) {
     let contract_id = env.register_contract(None, VeritixToken);
-    VeritixTokenClient::new(env, &contract_id)
+    (contract_id.clone(), VeritixTokenClient::new(env, &contract_id))
+}
+
+fn create_client(env: &Env) -> VeritixTokenClient<'_> {
+    create_client_with_id(env).1
 }
 
 fn initialize_client(client: &VeritixTokenClient<'_>, env: &Env, admin: &Address, decimal: u32) {
@@ -234,22 +238,52 @@ fn test_expired_allowance_panics() {
 fn test_admin_and_freeze_views_follow_state_changes() {
     let (env, admin, user) = setup();
     env.mock_all_auths();
-    let client = create_client(&env);
+    let (contract_id, client) = create_client_with_id(&env);
     let new_admin = Address::generate(&env);
 
     initialize_client(&client, &env, &admin, 7);
 
     assert_eq!(client.admin(), admin);
     assert!(!client.is_frozen(&user));
+    assert_eq!(
+        env.as_contract(&contract_id, || {
+            env.storage()
+                .persistent()
+                .get::<crate::storage_types::DataKey, bool>(&crate::storage_types::DataKey::Freeze(
+                    user.clone(),
+                ))
+        }),
+        None
+    );
 
     client.set_admin(&new_admin);
     assert_eq!(client.admin(), new_admin);
 
     client.freeze(&user);
     assert!(client.is_frozen(&user));
+    assert_eq!(
+        env.as_contract(&contract_id, || {
+            env.storage()
+                .persistent()
+                .get::<crate::storage_types::DataKey, bool>(&crate::storage_types::DataKey::Freeze(
+                    user.clone(),
+                ))
+        }),
+        Some(true)
+    );
 
     client.unfreeze(&user);
     assert!(!client.is_frozen(&user));
+    assert_eq!(
+        env.as_contract(&contract_id, || {
+            env.storage()
+                .persistent()
+                .get::<crate::storage_types::DataKey, bool>(&crate::storage_types::DataKey::Freeze(
+                    user.clone(),
+                ))
+        }),
+        None
+    );
 }
 
 #[test]
