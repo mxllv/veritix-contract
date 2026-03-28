@@ -15,6 +15,8 @@ Veritix Pay is the payment layer of a blockchain-based ticketing system. It live
 
 The contract handles **token transfers**, **escrow for ticket purchases**, **recurring payments**, **payment splitting between organizers, artists, and venues**, and **dispute resolution** when something goes wrong. Each of these is designed as a focused, composable module that shares a common storage layout and authorization model.
 
+Escrowed funds are held temporarily on the contract's own ledger balance. When an escrow is created, tokens move from the depositor into the contract address, stay there while the escrow is unresolved, and move back out only on release or refund. This means the contract address can hold a real token balance during escrow flows without increasing total supply.
+
 This project is currently being built in the open. The contract source files have been cleared and contributors can claim open GitHub Issues to build individual modules from scratch. If you want to contribute to a real Soroban project, this is a great place to start — see the [Contributing](#contributing) section below.
 
 ---

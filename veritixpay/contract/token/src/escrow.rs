@@ -15,7 +15,8 @@ pub struct EscrowRecord {
     pub refunded: bool,
 }
 
-// Lock funds from depositor into escrow. Returns the escrow ID.
+// Lock funds from depositor into escrow. The contract address itself holds the
+// escrowed balance until the record is released or refunded. Returns the escrow ID.
 pub fn create_escrow(e: &Env, depositor: Address, beneficiary: Address, amount: i128) -> u32 {
     // Auth: depositor must authorize locking funds
     depositor.require_auth();

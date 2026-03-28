@@ -7,6 +7,8 @@ The core Soroban smart contract for the Veritix Pay ticketing platform, handling
 
 The contract is designed with a layered architecture to separate concerns and ensure secure token operations. At the foundational level, `storage_types.rs` acts as the shared foundation, defining the core data keys and structures used across all files. Building upon this, `admin.rs`, `metadata.rs`, `balance.rs`, and `allowance.rs` serve as the token primitives, handling raw ledger updates and basic authorization. The `contract.rs` module acts as the public interface that ties these primitives together, exposing the standard Soroban token functions to the outside world. Finally, complex business logic is encapsulated in payment feature modules like `escrow.rs`, `recurring.rs`, `splitter.rs`, and `dispute.rs`, which sit on top of the primitives to execute real-world ticketing workflows.
 
+Escrow uses the contract address itself as the temporary holder of escrowed funds. `create_escrow` transfers the requested amount from the depositor into `e.current_contract_address()`, so the contract can hold a real token balance while the escrow is pending. `release_escrow` and `refund_escrow` then move that same balance back out to the beneficiary or depositor without minting or burning new tokens.
+
 ## Storage Model
 
 
