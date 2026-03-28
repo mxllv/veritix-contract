@@ -2,6 +2,10 @@ use soroban_sdk::{symbol_short, testutils::Address as _, vec, Address, Env, Into
 
 use crate::balance::read_balance;
 use crate::contract::VeritixToken;
+use crate::escrow::{
+    create_escrow, get_escrow, refund_escrow, release_escrow, try_get_escrow, try_refund_escrow,
+    try_release_escrow,
+};
 use crate::escrow::{create_escrow, get_escrow, refund_escrow, release_escrow};
 use crate::storage_types::{read_counter, DataKey};
 
@@ -181,6 +185,44 @@ fn test_create_escrow_increments_counter() {
 
     e.as_contract(&contract_id, || {
         assert_eq!(read_counter(&e, &DataKey::EscrowCount), 2);
+    });
+}
+
+#[test]
+fn test_get_escrow_missing_id_returns_not_found_error() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+
+    e.as_contract(&contract_id, || {
+        assert_eq!(try_get_escrow(&e, 999), Err("escrow not found"));
+    });
+}
+
+#[test]
+fn test_release_missing_id_returns_not_found_error() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let beneficiary = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        assert_eq!(
+            try_release_escrow(&e, beneficiary.clone(), 999),
+            Err("escrow not found")
+        );
+    });
+}
+
+#[test]
+fn test_refund_missing_id_returns_not_found_error() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let depositor = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        assert_eq!(
+            try_refund_escrow(&e, depositor.clone(), 999),
+            Err("escrow not found")
+        );
     });
 }
 
