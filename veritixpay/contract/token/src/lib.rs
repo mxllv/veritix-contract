@@ -1,7 +1,7 @@
 #![no_std]
 #![allow(unexpected_cfgs)]
 
-// Veritix Pay — Smart contract logic coming soon.
+// Veritix Pay contract modules.
 // Contributors: see CONTRIBUTING.md for how to get started.
 
 pub mod admin;
