@@ -29,6 +29,13 @@ fn initialize_client(client: &VeritixTokenClient<'_>, env: &Env, admin: &Address
     );
 }
 
+fn assert_supply_matches(client: &VeritixTokenClient<'_>, tracked_addresses: &[Address]) {
+    let tracked_sum = tracked_addresses
+        .iter()
+        .fold(0i128, |sum, address| sum + client.balance(address));
+    assert_eq!(client.total_supply(), tracked_sum);
+}
+
 #[test]
 fn test_initialize() {
     let (env, admin, _user) = setup();
@@ -338,6 +345,29 @@ fn test_clawback_reduces_total_supply() {
 
     assert_eq!(client.balance(&user), 700i128);
     assert_eq!(client.total_supply(), 700i128);
+}
+
+#[test]
+fn test_core_token_operations_preserve_supply_invariant() {
+    let (env, admin, user) = setup();
+    env.mock_all_auths();
+    let client = create_client(&env);
+    let receiver = Address::generate(&env);
+    let tracked = [user.clone(), receiver.clone()];
+
+    initialize_client(&client, &env, &admin, 7);
+
+    client.mint(&admin, &user, &1_000i128);
+    assert_supply_matches(&client, &tracked);
+
+    client.transfer(&user, &receiver, &250i128);
+    assert_supply_matches(&client, &tracked);
+
+    client.burn(&receiver, &100i128);
+    assert_supply_matches(&client, &tracked);
+
+    client.clawback(&admin, &user, &150i128);
+    assert_supply_matches(&client, &tracked);
 }
 
 #[test]

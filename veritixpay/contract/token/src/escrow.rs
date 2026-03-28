@@ -1,6 +1,7 @@
 use crate::balance::{receive_balance, spend_balance};
-use crate::storage_types::{read_persistent_record, write_persistent_record, DataKey};
-use crate::storage_types::{increment_counter, DataKey};
+use crate::storage_types::{
+    increment_counter, read_persistent_record, write_persistent_record, DataKey,
+};
 use soroban_sdk::{contracttype, Address, Env, Symbol};
 
 #[contracttype]
@@ -140,9 +141,13 @@ pub fn get_escrow(e: &Env, escrow_id: u32) -> EscrowRecord {
 }
 
 pub fn try_get_escrow(e: &Env, escrow_id: u32) -> Result<EscrowRecord, &'static str> {
-    e.storage()
-        .persistent()
-        .get(&DataKey::Escrow(escrow_id))
-        .ok_or("escrow not found")
-    read_persistent_record(e, &DataKey::Escrow(escrow_id), "escrow not found")
+    if e.storage().persistent().has(&DataKey::Escrow(escrow_id)) {
+        Ok(read_persistent_record(
+            e,
+            &DataKey::Escrow(escrow_id),
+            "escrow not found",
+        ))
+    } else {
+        Err("escrow not found")
+    }
 }
