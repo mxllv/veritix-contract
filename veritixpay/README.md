@@ -52,7 +52,7 @@ Use the standard makefile commands to interact with the contract:
 * `make clean`: Removes the `target/` directory and compiled binaries.
 
 ## Authorization Model
-Security is enforced natively using the Soroban SDK. Every state-changing function requires the caller to authorize the transaction, invoked via `address.require_auth()`. Administrative functions rely on `check_admin(&e)`, which verifies the caller against the stored `DataKey::Admin` address. To prevent state archiving, storage TTL (Time To Live) is bumped automatically during `read_balance` and `read_allowance` calls, ensuring active accounts remain on the ledger.
+Security is enforced natively using the Soroban SDK. Every state-changing function requires the caller to authorize the transaction, invoked via `address.require_auth()`. Administrative functions rely on `check_admin(&e)`, which verifies the caller against the stored `DataKey::Admin` address. Allowances remain valid when `expiration_ledger == current ledger sequence` and expire only once the ledger advances past that boundary. To prevent state archiving, storage TTL (Time To Live) is bumped automatically during `read_balance` and `read_allowance` calls, ensuring active accounts remain on the ledger.
 
 ## Adding a New Module
 1. Define any new data structures or `DataKey` variants in `storage_types.rs`.

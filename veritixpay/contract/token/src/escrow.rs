@@ -1,5 +1,6 @@
 use crate::balance::{receive_balance, spend_balance};
-use crate::storage_types::DataKey;
+use crate::storage_types::{read_persistent_record, write_persistent_record, DataKey};
+use crate::storage_types::{increment_counter, DataKey};
 use soroban_sdk::{contracttype, Address, Env, Symbol};
 
 #[contracttype]
@@ -23,13 +24,7 @@ pub fn create_escrow(e: &Env, depositor: Address, beneficiary: Address, amount: 
     receive_balance(e, e.current_contract_address(), amount);
 
     // Increment and persist the global escrow counter
-    let mut count: u32 = e
-        .storage()
-        .instance()
-        .get(&DataKey::EscrowCount)
-        .unwrap_or(0);
-    count += 1;
-    e.storage().instance().set(&DataKey::EscrowCount, &count);
+    let count = increment_counter(e, &DataKey::EscrowCount);
 
     // Persist the new escrow record
     let record = EscrowRecord {
@@ -40,9 +35,7 @@ pub fn create_escrow(e: &Env, depositor: Address, beneficiary: Address, amount: 
         released: false,
         refunded: false,
     };
-    e.storage()
-        .persistent()
-        .set(&DataKey::Escrow(count), &record);
+    write_persistent_record(e, &DataKey::Escrow(count), &record);
 
     // Optional observability event
     e.events().publish(
@@ -80,9 +73,7 @@ pub fn try_release_escrow(e: &Env, caller: Address, escrow_id: u32) -> Result<()
 
     // Mark as released and persist
     escrow.released = true;
-    e.storage()
-        .persistent()
-        .set(&DataKey::Escrow(escrow_id), &escrow);
+    write_persistent_record(e, &DataKey::Escrow(escrow_id), &escrow);
 
     // Transfer funds from contract to beneficiary
     spend_balance(e, e.current_contract_address(), escrow.amount);
@@ -124,9 +115,7 @@ pub fn try_refund_escrow(e: &Env, caller: Address, escrow_id: u32) -> Result<(),
 
     // Mark as refunded and persist
     escrow.refunded = true;
-    e.storage()
-        .persistent()
-        .set(&DataKey::Escrow(escrow_id), &escrow);
+    write_persistent_record(e, &DataKey::Escrow(escrow_id), &escrow);
 
     // Transfer funds from contract back to depositor
     spend_balance(e, e.current_contract_address(), escrow.amount);
@@ -155,4 +144,5 @@ pub fn try_get_escrow(e: &Env, escrow_id: u32) -> Result<EscrowRecord, &'static 
         .persistent()
         .get(&DataKey::Escrow(escrow_id))
         .ok_or("escrow not found")
+    read_persistent_record(e, &DataKey::Escrow(escrow_id), "escrow not found")
 }

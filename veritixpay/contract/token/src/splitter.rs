@@ -1,5 +1,6 @@
 use crate::balance::{receive_balance, spend_balance};
-use crate::storage_types::DataKey;
+use crate::storage_types::{read_persistent_record, write_persistent_record, DataKey};
+use crate::storage_types::{increment_counter, DataKey};
 use soroban_sdk::{contracttype, Address, Env, Symbol, Vec};
 
 #[contracttype]
@@ -37,9 +38,7 @@ pub fn create_split(
     }
 
     // 2. Increment and get Split ID
-    let mut count: u32 = e.storage().instance().get(&DataKey::SplitCount).unwrap_or(0);
-    count += 1;
-    e.storage().instance().set(&DataKey::SplitCount, &count);
+    let count = increment_counter(e, &DataKey::SplitCount);
 
     // 3. Move funds from sender to contract
     // Note: Assuming contract address is e.current_contract_address()
@@ -54,7 +53,7 @@ pub fn create_split(
         total_amount,
         distributed: false,
     };
-    e.storage().persistent().set(&DataKey::Split(count), &record);
+    write_persistent_record(e, &DataKey::Split(count), &record);
 
     count
 }
@@ -97,7 +96,7 @@ pub fn distribute(e: &Env, caller: Address, split_id: u32) {
 
     // 3. Mark distributed
     record.distributed = true;
-    e.storage().persistent().set(&DataKey::Split(split_id), &record);
+    write_persistent_record(e, &DataKey::Split(split_id), &record);
 
     // 4. Emit Observability Event
     e.events().publish(
@@ -107,6 +106,7 @@ pub fn distribute(e: &Env, caller: Address, split_id: u32) {
 }
 
 pub fn get_split(e: &Env, split_id: u32) -> SplitRecord {
+    read_persistent_record(e, &DataKey::Split(split_id), "split record not found")
     e.storage()
         .persistent()
         .get(&DataKey::Split(split_id))
