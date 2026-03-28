@@ -49,6 +49,8 @@ The contract is designed with a layered architecture to separate concerns and en
 Use the standard makefile commands to interact with the contract:
 * `make build`: Compiles the Rust code into a WebAssembly (`.wasm`) binary optimized for the Soroban environment.
 * `make test`: Runs the entire comprehensive unit testing suite across all modules to ensure logic and panic states execute correctly.
+* `make build-logs`: Produces a local debug-oriented WASM build using the `release-with-logs` Cargo profile. Use this when you want debug assertions enabled while inspecting local contract behavior. This path builds with `cargo` directly rather than `stellar contract build`.
+* `make test-logs`: Runs the test suite with the `release-with-logs` profile to mirror the debug-oriented build configuration during local investigation.
 * `make clean`: Removes the `target/` directory and compiled binaries.
 
 ## Authorization Model
