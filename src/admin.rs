@@ -1,15 +1,20 @@
 use soroban_sdk::{Address, Env};
+use crate::storage_types::DataKey;
 
-/// Validates that the provided admin address is valid and usable.
-/// 
-/// ### Panics
-/// Panics if the address matches a default/empty structure or is un-executable.
-pub fn validate_admin_address(env: &Env, admin: &Address) {
-    // 1. Core structural verification fallback (Soroban specific check)
-    // Testing if an address is valid often involves verifying it can generate or has bytes,
-    // or comparing it against a freshly created/empty dummy address if applicable.
-    
-    // Minimum check: Ensure the address is not an unconfigured/empty placeholder.
-    // If your project utilizes a specific sentinel pattern, asset match it here:
-    // assert!(admin != &Address::from_string(&env.clone(), "G..."), "InvalidAdmin: Cannot use sentinel address");
+pub fn check_admin(e: &Env, caller: &Address) {
+    let admin: Address = e.storage().persistent().get(&DataKey::Admin).expect("admin not set");
+    if admin != *caller {
+        panic!("Unauthorized: {} is not the contract admin", caller.to_string());
+    }
+    caller.require_auth();
+}
+
+pub fn is_initialized(e: &Env) -> bool {
+    e.storage().persistent().has(&DataKey::Admin)
+}
+
+pub fn require_initialized(e: &Env) {
+    if !is_initialized(e) {
+        panic!("NotInitialized: call initialize first");
+    }
 }

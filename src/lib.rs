@@ -2,6 +2,7 @@
 
 mod admin;
 mod contract;
+mod dispute;
 mod escrow;
 mod escrow_test;
 mod multi_escrow;       // NEW — #176

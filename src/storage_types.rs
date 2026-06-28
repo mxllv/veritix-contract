@@ -19,4 +19,6 @@ pub enum DataKey {
     MultiEscrowCount,
     MultiEscrow(u32),
     Allowance(Address, Address),
+    EscrowDispute(u32),
+    LastEscrowTime(Address),
 }
