@@ -232,3 +232,37 @@ pub fn get_recurring_by_payer(e: &Env, payer: Address) -> Vec<u32> {
     let key = DataKey::PayerRecurrings(payer);
     e.storage().persistent().get(&key).unwrap_or_else(|| vec![e])
 }
+
+/// Batch-cancel up to 20 recurring payments belonging to payer.
+/// Atomically fails (panics) if any ID is not owned by payer or exceeds the 20-limit.
+pub fn cancel_recurring_batch(e: &Env, payer: Address, recurring_ids: Vec<u32>) {
+    payer.require_auth();
+    if recurring_ids.len() > 20 {
+        panic!("batch exceeds maximum of 20");
+    }
+    // First pass: validate all ownership before mutating any state.
+    for id in recurring_ids.iter() {
+        let key = DataKey::Recurring(id);
+        let record: RecurringRecord = e
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| panic!("recurring record not found"));
+        if record.payer != payer {
+            panic!("unauthorized");
+        }
+    }
+    // Second pass: apply cancellations.
+    let count = recurring_ids.len() as u32;
+    for id in recurring_ids.iter() {
+        let key = DataKey::Recurring(id);
+        let mut record: RecurringRecord = e.storage().persistent().get(&key).unwrap();
+        record.active = false;
+        e.storage().persistent().set(&key, &record);
+        e.storage()
+            .persistent()
+            .extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+    }
+    e.events()
+        .publish((symbol_short!("rcur_batch_c"), payer), count);
+}

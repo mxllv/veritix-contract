@@ -26,7 +26,11 @@ use crate::dispute::{
     get_dispute as dispute_get, get_open_disputes, open_dispute, resolve_dispute, DisputeRecord,
 };
 use crate::escrow::{
+use crate::escrow::{
     admin_settle_escrow as escrow_admin_settle, create_escrow as escrow_create,
+    escrow_between as escrow_between_fn, get_escrow as escrow_get, refund_escrow as escrow_refund,
+    release_escrow as escrow_release, EscrowRecord,
+};
     get_escrow as escrow_get, refund_escrow as escrow_refund, release_escrow as escrow_release,
     EscrowRecord,
 };
@@ -657,5 +661,15 @@ impl VeritixToken {
 
     pub fn resume_recurring(e: Env, caller: Address, recurring_id: u32) {
         resume_recurring(&e, caller, recurring_id)
+    }
+
+    /// Returns the first active escrow ID between depositor and beneficiary, or None.
+    pub fn escrow_between(e: Env, depositor: Address, beneficiary: Address) -> Option<u32> {
+        escrow_between_fn(&e, depositor, beneficiary)
+    }
+
+    /// Batch-cancels up to 20 recurring payments owned by payer atomically.
+    pub fn cancel_recurring_batch(e: Env, payer: Address, recurring_ids: Vec<u32>) {
+        crate::recurring::cancel_recurring_batch(&e, payer, recurring_ids)
     }
 }

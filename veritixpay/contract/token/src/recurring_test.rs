@@ -398,4 +398,70 @@ mod recurring_tests {
             setup_recurring(&e, payer.clone(), payee.clone(), 500, 0);
         });
     }
+
+    // --- Issue #450: cancel_recurring_batch tests ---
+
+    #[test]
+    fn test_cancel_recurring_batch_deactivates_all() {
+        let e = setup_env();
+        let contract_id = e.register_contract(None, VeritixToken);
+        let (payer, _payee, id1) = fund_and_setup(&e, &contract_id, 500, 100);
+
+        // Setup a second recurring for the same payer.
+        let payee2 = Address::generate(&e);
+        let mut id2 = 0u32;
+        e.as_contract(&contract_id, || {
+            crate::balance::receive_balance(&e, payer.clone(), 500);
+            id2 = setup_recurring(&e, payer.clone(), payee2.clone(), 500, 100);
+        });
+
+        e.as_contract(&contract_id, || {
+            let ids = soroban_sdk::vec![&e, id1, id2];
+            crate::recurring::cancel_recurring_batch(&e, payer.clone(), ids);
+            assert!(!get_recurring(&e, id1).active);
+            assert!(!get_recurring(&e, id2).active);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "unauthorized")]
+    fn test_cancel_recurring_batch_unauthorized_reverts_all() {
+        let e = setup_env();
+        let contract_id = e.register_contract(None, VeritixToken);
+        let (payer, _payee, id1) = fund_and_setup(&e, &contract_id, 500, 100);
+
+        // Create a second recurring owned by a different payer.
+        let other_payer = Address::generate(&e);
+        let payee2 = Address::generate(&e);
+        let mut id2 = 0u32;
+        e.as_contract(&contract_id, || {
+            crate::balance::receive_balance(&e, other_payer.clone(), 500);
+            id2 = setup_recurring(&e, other_payer.clone(), payee2.clone(), 500, 100);
+        });
+
+        // Attempt to cancel both — id2 belongs to other_payer, must panic (full revert).
+        e.as_contract(&contract_id, || {
+            let ids = soroban_sdk::vec![&e, id1, id2];
+            crate::recurring::cancel_recurring_batch(&e, payer.clone(), ids);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "batch exceeds maximum of 20")]
+    fn test_cancel_recurring_batch_over_limit_panics() {
+        let e = setup_env();
+        let contract_id = e.register_contract(None, VeritixToken);
+        let payer = Address::generate(&e);
+        let payee = Address::generate(&e);
+
+        e.as_contract(&contract_id, || {
+            // Build a Vec of 21 IDs (all fake — limit check happens first).
+            let mut ids = soroban_sdk::vec![&e];
+            for i in 1u32..=21 {
+                ids.push_back(i);
+            }
+            crate::recurring::cancel_recurring_batch(&e, payer.clone(), ids);
+        });
+        let _ = (payer, payee); // suppress unused warnings
+    }
 }
