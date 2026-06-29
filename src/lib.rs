@@ -4,6 +4,7 @@ mod admin;
 mod allowance;
 mod balance;
 mod contract;
+mod dispute;
 mod escrow;
 mod escrow_test;
 mod freeze;

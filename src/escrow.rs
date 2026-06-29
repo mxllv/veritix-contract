@@ -60,7 +60,7 @@ fn append_escrow_id(e: &Env, key: DataKey, id: u32) {
     e.storage().persistent().set(&key, &list);
 }
 
-fn load_record(e: &Env, escrow_id: u32) -> EscrowRecord {
+pub fn load_record(e: &Env, escrow_id: u32) -> EscrowRecord {
     e.storage()
         .persistent()
         .get(&DataKey::Escrow(escrow_id))
@@ -111,6 +111,7 @@ pub fn create_escrow(
     }
 
     assert!(amount > 0, "amount must be greater than zero");
+    // #433: expiry must be strictly in the future
     assert!(
         expiry_ledger > e.ledger().sequence(),
         "expiry_ledger must be in the future"
