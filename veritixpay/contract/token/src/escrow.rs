@@ -124,6 +124,11 @@ pub fn refund_escrow(e: &Env, caller: Address, escrow_id: u32) {
 pub fn try_refund_escrow(e: &Env, caller: Address, escrow_id: u32) -> Result<(), &'static str> {
     let mut escrow = try_get_escrow(e, escrow_id)?;
 
+    // Block refund if an active dispute exists — the resolver must settle first.
+    if e.storage().persistent().has(&DataKey::EscrowDispute(escrow_id)) {
+        panic!("DisputeOpen: cannot refund while a dispute is active — wait for resolution");
+    }
+
     // Authorization: only the original depositor can refund, unless the escrow has expired
     let expired = e.ledger().sequence() > escrow.expiry_ledger;
     if escrow.depositor != caller && !expired {
@@ -183,7 +188,7 @@ pub fn try_get_escrow(e: &Env, escrow_id: u32) -> Result<EscrowRecord, &'static 
             {
                 e.storage().instance().set(&warned_key, &true);
                 e.events().publish(
-                    (symbol_short!("expir_warn"), escrow_id),
+                    (symbol_short!("exp_warn"), escrow_id),
                     (record.expiry_ledger, e.ledger().sequence()),
                 );
             }
@@ -192,6 +197,26 @@ pub fn try_get_escrow(e: &Env, escrow_id: u32) -> Result<EscrowRecord, &'static 
     } else {
         Err("escrow not found")
     }
+}
+
+/// Top up an existing escrow with additional funds. Rejected if a dispute is open.
+pub fn topup_escrow(e: &Env, depositor: Address, escrow_id: u32, amount: i128) {
+    depositor.require_auth();
+    require_positive_amount(amount);
+    if e.storage().persistent().has(&DataKey::EscrowDispute(escrow_id)) {
+        panic!("DisputeOpen: cannot top up an escrow under active dispute");
+    }
+    let mut record = get_escrow(e, escrow_id);
+    if record.released || record.refunded {
+        panic!("escrow already settled");
+    }
+    if record.depositor != depositor {
+        panic!("not the depositor");
+    }
+    spend_balance(e, depositor.clone(), amount);
+    receive_balance(e, e.current_contract_address(), amount);
+    record.amount += amount;
+    write_persistent_record(e, &DataKey::Escrow(escrow_id), &record);
 }
 
 /// Admin escape hatch: forcibly settles a stuck escrow by sending funds to
