@@ -69,7 +69,8 @@ pub fn execute_recurring(e: &Env, recurring_id: u32) {
     }
     spend_balance(e, record.payer.clone(), record.amount);
     receive_balance(e, record.payee.clone(), record.amount);
-    record.last_charged_ledger = current_ledger;
+    // Anchor to the scheduled ledger (not current_ledger) to prevent schedule drift.
+    record.last_charged_ledger = record.last_charged_ledger + record.interval;
     e.storage().persistent().set(&key, &record);
     e.storage().persistent().extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
     e.events().publish((symbol_short!("recur_exe"), recurring_id), record.amount);

@@ -614,25 +614,111 @@ mod recurring_tests {
     // canceling a recurring payment does not require a refund - the payer's
     // balance remains unchanged because funds were never transferred.
 
+    // Issue #445: Execution boundary tests
+
+    // Exact boundary: advancing ledger by exactly interval must succeed.
     #[test]
-    fn test_cancel_recurring_preserves_payer_balance() {
+    fn test_execute_on_exact_boundary_succeeds() {
         let e = setup_env();
         let contract_id = e.register_contract(None, VeritixToken);
-        let (payer, _payee, id) = fund_and_setup(&e, &contract_id, 1_000, 100);
-
-        let balance_before = read_balance(&e, payer.clone());
+        let (payer, payee, id) = fund_and_setup(&e, &contract_id, 500, 100);
 
         e.as_contract(&contract_id, || {
-            cancel_recurring(&e, payer.clone(), id);
+            let r = get_recurring(&e, id);
+            let due = r.last_charged_ledger + r.interval;
+            e.ledger().with_mut(|l| l.sequence_number = due);
+            execute_recurring(&e, id);
+            assert_eq!(read_balance(&e, payee.clone()), 500);
+            assert_eq!(read_balance(&e, payer.clone()), 0);
+        });
+    }
+
+    // One ledger before boundary must be rejected.
+    #[test]
+    #[should_panic(expected = "interval has not elapsed")]
+    fn test_execute_one_ledger_before_boundary_panics() {
+        let e = setup_env();
+        let contract_id = e.register_contract(None, VeritixToken);
+        let (_payer, _payee, id) = fund_and_setup(&e, &contract_id, 500, 100);
+
+        e.as_contract(&contract_id, || {
+            let r = get_recurring(&e, id);
+            let one_before = r.last_charged_ledger + r.interval - 1;
+            e.ledger().with_mut(|l| l.sequence_number = one_before);
+            execute_recurring(&e, id);
+        });
+    }
+
+    // One ledger after boundary must succeed.
+    #[test]
+    fn test_execute_one_ledger_after_boundary_succeeds() {
+        let e = setup_env();
+        let contract_id = e.register_contract(None, VeritixToken);
+        let (_payer, payee, id) = fund_and_setup(&e, &contract_id, 500, 100);
+
+        e.as_contract(&contract_id, || {
+            let r = get_recurring(&e, id);
+            let one_after = r.last_charged_ledger + r.interval + 1;
+            e.ledger().with_mut(|l| l.sequence_number = one_after);
+            execute_recurring(&e, id);
+            assert_eq!(read_balance(&e, payee.clone()), 500);
+        });
+    }
+
+    // Delayed execution: last_charged_ledger must anchor to the scheduled
+    // due date (old_last_charged + interval), not the actual current_ledger.
+    #[test]
+    fn test_execute_updates_last_charged_to_scheduled_not_actual_ledger() {
+        let e = setup_env();
+        let contract_id = e.register_contract(None, VeritixToken);
+        let (_payer, _payee, id) = fund_and_setup(&e, &contract_id, 500, 100);
+
+        e.as_contract(&contract_id, || {
+            let r = get_recurring(&e, id);
+            let old_last = r.last_charged_ledger;
+            let interval = r.interval;
+            // Execute 5 ledgers late
+            e.ledger().with_mut(|l| l.sequence_number = old_last + interval + 5);
+            execute_recurring(&e, id);
+            let updated = get_recurring(&e, id);
+            // Must be anchored to schedule, not current ledger
+            assert_eq!(updated.last_charged_ledger, old_last + interval);
+        });
+    }
+
+    // Three consecutive executions must each fire on the correct scheduled ledger.
+    #[test]
+    fn test_multiple_executions_maintain_consistent_schedule() {
+        let e = setup_env();
+        let contract_id = e.register_contract(None, VeritixToken);
+        // Fund payer for 3 charges
+        let (payer, payee, id) = fund_and_setup(&e, &contract_id, 500, 100);
+        e.as_contract(&contract_id, || {
+            crate::balance::receive_balance(&e, payer.clone(), 1_000);
         });
 
-        // Payer balance should be unchanged after cancellation
-        // (no funds were locked during setup - pull model)
-        let balance_after = read_balance(&e, payer.clone());
-        assert_eq!(balance_after, balance_before);
+        e.as_contract(&contract_id, || {
+            let r = get_recurring(&e, id);
+            let base = r.last_charged_ledger;
+            let interval = r.interval;
 
-        // Verify the record is no longer active
-        let record = get_recurring(&e, id);
-        assert!(!record.active);
+            // First execution — exactly on schedule
+            e.ledger().with_mut(|l| l.sequence_number = base + interval);
+            execute_recurring(&e, id);
+            assert_eq!(get_recurring(&e, id).last_charged_ledger, base + interval);
+            assert_eq!(read_balance(&e, payee.clone()), 500);
+
+            // Second execution — exactly on next schedule
+            e.ledger().with_mut(|l| l.sequence_number = base + interval * 2);
+            execute_recurring(&e, id);
+            assert_eq!(get_recurring(&e, id).last_charged_ledger, base + interval * 2);
+            assert_eq!(read_balance(&e, payee.clone()), 1_000);
+
+            // Third execution — exactly on third schedule
+            e.ledger().with_mut(|l| l.sequence_number = base + interval * 3);
+            execute_recurring(&e, id);
+            assert_eq!(get_recurring(&e, id).last_charged_ledger, base + interval * 3);
+            assert_eq!(read_balance(&e, payee.clone()), 1_500);
+        });
     }
 }

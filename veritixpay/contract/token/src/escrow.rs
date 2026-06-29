@@ -199,7 +199,27 @@ pub fn try_get_escrow(e: &Env, escrow_id: u32) -> Result<EscrowRecord, &'static 
     }
 }
 
-/// Top up an existing escrow with additional funds. Rejected if a dispute is open.
+/// Returns aggregate stats across all escrows: total count, active count,
+/// settled count, and total value currently locked in active escrows.
+pub fn escrow_stats(e: &Env) -> crate::storage_types::EscrowStats {
+    let total_count = crate::storage_types::read_counter(e, &DataKey::EscrowCount);
+    let mut active_count: u32 = 0;
+    let mut total_value_locked: i128 = 0;
+    for id in 1..=total_count {
+        if let Some(record) = e.storage().persistent().get::<DataKey, EscrowRecord>(&DataKey::Escrow(id)) {
+            if !record.released && !record.refunded {
+                active_count += 1;
+                total_value_locked += record.amount;
+            }
+        }
+    }
+    crate::storage_types::EscrowStats {
+        total_count,
+        active_count,
+        settled_count: total_count - active_count,
+        total_value_locked,
+    }
+}
 pub fn topup_escrow(e: &Env, depositor: Address, escrow_id: u32, amount: i128) {
     depositor.require_auth();
     require_positive_amount(amount);
