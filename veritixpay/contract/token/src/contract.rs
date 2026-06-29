@@ -1,29 +1,11 @@
-use crate::admin::{check_admin, has_admin, read_admin, transfer_admin, write_admin};
-use crate::allowance::{get_allowances_for_spender, read_allowance, spend_allowance, write_allowance};
-use crate::batch::{clawback_batch, freeze_batch, unfreeze_batch};
-﻿use crate::admin::{check_admin, has_admin, read_admin, transfer_admin, write_admin};
-use crate::allowance::{read_allowance, spend_allowance, write_allowance};
-use crate::balance::{decrease_supply, increase_supply, read_balance, read_total_supply, receive_balance, spend_balance};
-use crate::dispute::{appeal_dispute, get_dispute as dispute_get, open_dispute, resolve_dispute, DisputeRecord};
-use crate::escrow::{admin_settle_escrow as escrow_admin_settle, create_escrow as escrow_create, get_escrow as escrow_get, refund_escrow as escrow_refund, release_escrow as escrow_release, EscrowRecord};
-use crate::freeze::{freeze_account, is_frozen as read_frozen_status, unfreeze_account};
-use crate::metadata::{read_decimal, read_name, read_symbol, validate_metadata, write_metadata, TokenMetadata};
-use crate::recurring::{cancel_recurring, execute_recurring, get_recurring, setup_recurring, RecurringRecord};
-use crate::splitter::{cancel_split as split_cancel, create_split as split_create, distribute as split_distribute, get_split as split_get, SplitRecord, SplitRecipient};
-use crate::dispute::{get_dispute as dispute_get, get_dispute_history_for_escrow, open_dispute, resolve_dispute, DisputeRecord};
-use crate::escrow::{admin_settle_escrow as escrow_admin_settle, create_escrow as escrow_create, get_escrow as escrow_get, refund_escrow as escrow_refund, release_escrow as escrow_release, EscrowRecord};
-use crate::freeze::{freeze_account, is_frozen as read_frozen_status, unfreeze_account};
-use crate::metadata::{read_decimal, read_name, read_symbol, validate_metadata, write_metadata, TokenMetadata};
-use crate::recurring::{cancel_recurring, execute_recurring, get_recurring, setup_recurring, RecurringRecord};
-use crate::splitter::{cancel_split as split_cancel, create_split as split_create, distribute as split_distribute, get_split as split_get, SplitRecord, SplitRecipient};
-use crate::balance::{
-    decrease_supply, increase_supply, read_balance, read_total_supply, receive_balance,
-    spend_balance,
-};
+use crate::admin::{check_admin, has_admin, read_admin, read_clawback_cosigner, read_pending_admin, transfer_admin, write_admin, write_clawback_cosigner};
+use crate::allowance::{get_allowances_for_spender, read_allowance, revoke_all_allowances, spend_allowance, validate_allowance, write_allowance};
+use crate::balance::{decrease_supply, increase_supply, read_balance, read_max_supply, read_total_supply, receive_balance, spend_balance};
+use crate::batch::{approve_batch, burn_from_batch, clawback_batch, freeze_batch, transfer_batch_with_memo, unfreeze_batch};
+use crate::storage_types::DataKey;
 use crate::dispute::{
-    get_dispute as dispute_get, get_disputes_by_resolver, open_dispute, resolve_dispute,
-    DisputeRecord,
-    get_dispute as dispute_get, get_open_disputes, open_dispute, resolve_dispute, DisputeRecord,
+    expire_dispute, get_dispute as dispute_get, get_dispute_history_for_escrow,
+    get_open_disputes, open_dispute, resolve_dispute, DisputeRecord,
 };
 use crate::escrow::{
 use crate::escrow::{
@@ -34,17 +16,13 @@ use crate::escrow::{
     get_escrow as escrow_get, refund_escrow as escrow_refund, release_escrow as escrow_release,
     EscrowRecord,
 };
-use crate::freeze::{freeze_account, is_frozen as read_frozen_status, unfreeze_account};
-use crate::metadata::{
-    read_decimal, read_name, read_symbol, update_metadata_fields, validate_metadata, write_metadata, TokenMetadata,
-};
+use crate::freeze::{freeze_account, get_frozen_accounts, is_frozen as read_frozen_status, unfreeze_account};
+use crate::metadata::{read_decimal, read_name, read_symbol, update_metadata_fields, validate_metadata, write_metadata, TokenMetadata};
+use crate::pause::{is_paused, pause, require_not_paused, unpause};
 use crate::recurring::{
-    amend_recurring, cancel_recurring, execute_recurring, get_recurring, setup_recurring,
-    RecurringRecord,
-    cancel_recurring, execute_recurring, get_recurring, get_recurring_by_payer, setup_recurring,
-    RecurringRecord,
-    cancel_recurring, execute_recurring, get_recurring, pause_recurring, resume_recurring,
-    setup_recurring, RecurringRecord,
+    amend_recurring, cancel_recurring, execute_recurring, get_next_execution_ledger,
+    get_recurring, get_recurring_by_payer, is_executable, pause_recurring,
+    recurring_count_for_payer, resume_recurring, setup_recurring, RecurringRecord,
 };
 use crate::splitter::{
     cancel_split as split_cancel, create_split as split_create, distribute as split_distribute,
@@ -58,13 +36,6 @@ pub struct VeritixToken;
 
 #[derive(Clone)]
 #[contracttype]
-pub struct AdminInfo {
-    pub admin: Address,
-    pub paused: bool,
-}
-
-#[derive(Clone)]
-#[contracttype]
 pub struct TokenInfo {
     pub name: String,
     pub symbol: String,
@@ -72,349 +43,269 @@ pub struct TokenInfo {
     pub total_supply: i128,
 }
 
+#[derive(Clone)]
+#[contracttype]
+pub struct AdminInfo {
+    pub admin: Address,
+    pub paused: bool,
+}
+
+#[derive(Clone)]
+#[contracttype]
+pub struct ContractStats {
+    pub escrow_count: u32,
+    pub split_count: u32,
+    pub recurring_count: u32,
+    pub dispute_count: u32,
+    pub total_supply: i128,
+}
+
 #[contractimpl]
 impl VeritixToken {
-    pub fn initialize(e: Env, admin: Address, name: String, symbol: String, decimal: u32) {
-        if has_admin(&e) { panic!("already initialized"); }
-        admin.require_auth();
-        let meta = TokenMetadata { name, symbol, decimal };
-        validate_metadata(&meta); write_admin(&e, &admin); write_metadata(&e, meta);
-    }
-    pub fn set_admin(e: Env, new_admin: Address) { transfer_admin(&e, new_admin); }
-    pub fn clawback(e: Env, admin: Address, from: Address, amount: i128) {
-        check_admin(&e, &admin); require_positive_amount(amount);
-        spend_balance(&e, from.clone(), amount); decrease_supply(&e, amount);
-        e.events().publish((symbol_short!("clawback"), admin, from), amount);
-    }
-    pub fn freeze(e: Env, target: Address) { let admin = read_admin(&e); check_admin(&e, &admin); freeze_account(&e, admin, target); }
-    pub fn unfreeze(e: Env, target: Address) { let admin = read_admin(&e); check_admin(&e, &admin); unfreeze_account(&e, admin, target); }
-    pub fn mint(e: Env, admin: Address, to: Address, amount: i128) {
-        check_admin(&e, &admin); require_positive_amount(amount); require_not_frozen_account(&e, &to);
-        receive_balance(&e, to.clone(), amount); increase_supply(&e, amount);
-        e.events().publish((symbol_short!("mint"), admin, to), amount);
-    }
-    pub fn transfer(e: Env, from: Address, to: Address, amount: i128) {
-        from.require_auth(); require_positive_amount(amount);
-        require_not_frozen_account(&e, &from); require_not_frozen_account(&e, &to);
-        spend_balance(&e, from.clone(), amount); receive_balance(&e, to.clone(), amount);
-        e.events().publish((symbol_short!("transfer"), from, to), amount);
-    }
-    pub fn transfer_from(e: Env, spender: Address, from: Address, to: Address, amount: i128) {
-        spender.require_auth(); require_positive_amount(amount);
-        require_not_frozen_account(&e, &from); require_not_frozen_account(&e, &to);
-        spend_allowance(&e, from.clone(), spender.clone(), amount);
-        spend_balance(&e, from.clone(), amount); receive_balance(&e, to.clone(), amount);
-        e.events().publish((symbol_short!("transfer"), from, to), amount);
-    }
-    pub fn initialize(e: Env, admin: Address, name: String, symbol: String, decimal: u32) {
-        if has_admin(&e) { panic!("already initialized"); }
-        admin.require_auth();
-        let meta = TokenMetadata { name, symbol, decimal };
-        validate_metadata(&meta); write_admin(&e, &admin); write_metadata(&e, meta);
-    }
-    pub fn set_admin(e: Env, new_admin: Address) { transfer_admin(&e, new_admin); }
-    pub fn clawback(e: Env, admin: Address, from: Address, amount: i128) {
-        check_admin(&e, &admin); require_positive_amount(amount);
-        spend_balance(&e, from.clone(), amount); decrease_supply(&e, amount);
-        e.events().publish((symbol_short!("clawback"), admin, from), amount);
-    }
-    pub fn freeze(e: Env, target: Address) { let admin = read_admin(&e); check_admin(&e, &admin); freeze_account(&e, admin, target); }
-    pub fn unfreeze(e: Env, target: Address) { let admin = read_admin(&e); check_admin(&e, &admin); unfreeze_account(&e, admin, target); }
-    pub fn mint(e: Env, admin: Address, to: Address, amount: i128) {
-        check_admin(&e, &admin); require_positive_amount(amount); require_not_frozen_account(&e, &to);
-        receive_balance(&e, to.clone(), amount); increase_supply(&e, amount);
-        e.events().publish((symbol_short!("mint"), admin, to), amount);
-    }
-    pub fn transfer(e: Env, from: Address, to: Address, amount: i128) {
-        from.require_auth(); require_positive_amount(amount);
-        require_not_frozen_account(&e, &from); require_not_frozen_account(&e, &to);
-        spend_balance(&e, from.clone(), amount); receive_balance(&e, to.clone(), amount);
-        e.events().publish((symbol_short!("transfer"), from, to), amount);
-    }
-    pub fn transfer_from(e: Env, spender: Address, from: Address, to: Address, amount: i128) {
-        spender.require_auth(); require_positive_amount(amount);
-        require_not_frozen_account(&e, &from); require_not_frozen_account(&e, &to);
-        spend_allowance(&e, from.clone(), spender.clone(), amount);
-        spend_balance(&e, from.clone(), amount); receive_balance(&e, to.clone(), amount);
-        e.events().publish((symbol_short!("transfer"), from, to), amount);
-    }
-    pub fn initialize(e: Env, admin: Address, name: String, symbol: String, decimal: u32) {
-        if has_admin(&e) { panic!("already initialized"); }
-    pub fn initialize(e: Env, admin: Address, name: String, symbol: String, decimal: u32) {
-        if has_admin(&e) { panic!("already initialized"); }
-    pub fn initialize(e: Env, admin: Address, name: String, symbol: String, decimal: u32) {
-        if has_admin(&e) { panic!("already initialized"); }
-    pub fn initialize(e: Env, admin: Address, name: String, symbol: String, decimal: u32) {
-        if has_admin(&e) { panic!("already initialized"); }
-    // --- Admin & metadata ---
-
+    // --- Admin ---
     pub fn initialize(e: Env, admin: Address, name: String, symbol: String, decimal: u32) {
         if has_admin(&e) {
-            panic!("already initialized");
+            panic!("AlreadyInitialized");
         }
-        admin.require_auth();
-        let meta = TokenMetadata { name, symbol, decimal };
-        validate_metadata(&meta);
+        let metadata = TokenMetadata { name: name.clone(), symbol: symbol.clone(), decimal };
+        validate_metadata(&metadata);
+        write_metadata(&e, metadata);
         write_admin(&e, &admin);
-        write_metadata(&e, meta);
+        e.storage().instance().set(&DataKey::MaxSupply, &0i128);
+        e.events().publish(
+            (symbol_short!("init_done"), admin),
+            (name, symbol, decimal),
+        );
     }
-    pub fn set_admin(e: Env, new_admin: Address) { transfer_admin(&e, new_admin); }
-    pub fn clawback(e: Env, admin: Address, from: Address, amount: i128) {
-        check_admin(&e, &admin); require_positive_amount(amount);
-        spend_balance(&e, from.clone(), amount); decrease_supply(&e, amount);
-        e.events().publish((symbol_short!("clawback"), admin, from), amount);
+    pub fn initialize_with_max_supply(e: Env, admin: Address, name: String, symbol: String, decimal: u32, max_supply: i128) {
+        if has_admin(&e) {
+            panic!("AlreadyInitialized");
+        }
+        let metadata = TokenMetadata { name: name.clone(), symbol: symbol.clone(), decimal };
+        validate_metadata(&metadata);
+        write_metadata(&e, metadata);
+        write_admin(&e, &admin);
+        e.storage().instance().set(&DataKey::MaxSupply, &max_supply);
+        e.events().publish(
+            (symbol_short!("init"), admin),
+            (name, symbol, decimal),
+        );
     }
-
-    pub fn set_admin(e: Env, new_admin: Address) { transfer_admin(&e, new_admin); }
-
-    pub fn clawback(e: Env, admin: Address, from: Address, amount: i128) {
-        check_admin(&e, &admin); require_positive_amount(amount);
-        spend_balance(&e, from.clone(), amount); decrease_supply(&e, amount);
-
-    pub fn clawback(e: Env, admin: Address, from: Address, amount: i128) {
-        check_admin(&e, &admin); require_positive_amount(amount);
-        spend_balance(&e, from.clone(), amount); decrease_supply(&e, amount);
     pub fn set_admin(e: Env, new_admin: Address) {
         transfer_admin(&e, new_admin);
     }
-
-    pub fn clawback(e: Env, admin: Address, from: Address, amount: i128) {
-        check_admin(&e, &admin);
-        require_positive_amount(amount);
-        spend_balance(&e, from.clone(), amount);
-        decrease_supply(&e, amount);
-        e.events().publish((symbol_short!("clawback"), admin, from), amount);
-    }
-    /// Admin-only batch clawback over `(from, amount)` tuples.
-    pub fn clawback_batch(e: Env, admin: Address, targets: Vec<(Address, i128)>) {
-        clawback_batch(&e, admin, targets);
-    }
-
-    // --- Freeze controls ---
-
-    /// Admin-only freeze for a single account.
-    pub fn freeze(e: Env, target: Address) {
-        let admin = read_admin(&e); check_admin(&e, &admin); freeze_account(&e, admin, target);
-    }
-
-    /// Admin-only unfreeze for a single account.
-    pub fn unfreeze(e: Env, target: Address) {
-        let admin = read_admin(&e); check_admin(&e, &admin); unfreeze_account(&e, admin, target);
-    }
-    pub fn mint(e: Env, admin: Address, to: Address, amount: i128) {
-        check_admin(&e, &admin); require_positive_amount(amount); require_not_frozen_account(&e, &to);
-        receive_balance(&e, to.clone(), amount); increase_supply(&e, amount);
-        e.events().publish((symbol_short!("mint"), admin, to), amount);
-    }
-    /// Admin-only batch freeze for multiple accounts.
-    pub fn freeze_batch(e: Env, admin: Address, targets: Vec<Address>) {
-        freeze_batch(&e, admin, targets);
-    }
-
-    /// Admin-only batch unfreeze for multiple accounts.
-    pub fn unfreeze_batch(e: Env, admin: Address, targets: Vec<Address>) {
-        unfreeze_batch(&e, admin, targets);
-    }
-
-    pub fn mint(e: Env, admin: Address, to: Address, amount: i128) {
-        check_admin(&e, &admin); require_positive_amount(amount); require_not_frozen_account(&e, &to);
-        receive_balance(&e, to.clone(), amount); increase_supply(&e, amount);
-    pub fn mint(e: Env, admin: Address, to: Address, amount: i128) {
-        check_admin(&e, &admin); require_positive_amount(amount); require_not_frozen_account(&e, &to);
-        receive_balance(&e, to.clone(), amount); increase_supply(&e, amount);
-    pub fn mint(e: Env, admin: Address, to: Address, amount: i128) {
-        check_admin(&e, &admin); require_positive_amount(amount); require_not_frozen_account(&e, &to);
-        receive_balance(&e, to.clone(), amount); increase_supply(&e, amount);
-    // --- Token interface ---
-
-    pub fn mint(e: Env, admin: Address, to: Address, amount: i128) {
-        check_admin(&e, &admin);
-        require_positive_amount(amount);
-        require_not_frozen_account(&e, &to);
-        receive_balance(&e, to.clone(), amount);
-        increase_supply(&e, amount);
-        e.events().publish((symbol_short!("mint"), admin, to), amount);
-    }
-
-    pub fn transfer(e: Env, from: Address, to: Address, amount: i128) {
-        from.require_auth(); require_positive_amount(amount);
-        require_not_frozen_account(&e, &from); require_not_frozen_account(&e, &to);
-        spend_balance(&e, from.clone(), amount); receive_balance(&e, to.clone(), amount);
-        e.events().publish((symbol_short!("transfer"), from, to), amount);
-    }
-    pub fn transfer_from(e: Env, spender: Address, from: Address, to: Address, amount: i128) {
-        spender.require_auth(); require_positive_amount(amount);
-        require_not_frozen_account(&e, &from); require_not_frozen_account(&e, &to);
-        spend_allowance(&e, from.clone(), spender.clone(), amount);
-        spend_balance(&e, from.clone(), amount); receive_balance(&e, to.clone(), amount);
-        e.events().publish((symbol_short!("transfer"), from, to), amount);
-    }
-    pub fn burn(e: Env, from: Address, amount: i128) {
-        from.require_auth(); require_positive_amount(amount); require_not_frozen_account(&e, &from);
-        spend_balance(&e, from.clone(), amount); decrease_supply(&e, amount);
-        e.events().publish((symbol_short!("burn"), from), amount);
-    }
-    pub fn burn_from(e: Env, spender: Address, from: Address, amount: i128) {
-        spender.require_auth(); require_positive_amount(amount); require_not_frozen_account(&e, &from);
-        spend_allowance(&e, from.clone(), spender.clone(), amount);
-        spend_balance(&e, from.clone(), amount); decrease_supply(&e, amount);
-        e.events().publish((symbol_short!("burn"), from), amount);
-    }
-    pub fn approve(e: Env, from: Address, spender: Address, amount: i128, expiration_ledger: u32) {
-        from.require_auth(); require_positive_amount(amount);
-        write_allowance(&e, from.clone(), spender.clone(), amount, expiration_ledger);
-        e.events().publish((symbol_short!("approve"), from, spender), amount);
-    }
-        spend_allowance(&e, from.clone(), spender.clone(), amount);
-        spend_balance(&e, from.clone(), amount); decrease_supply(&e, amount);
-        e.events().publish((symbol_short!("burn"), from), amount);
-    }
-    pub fn approve(e: Env, from: Address, spender: Address, amount: i128, expiration_ledger: u32) {
-        from.require_auth(); require_positive_amount(amount);
-        write_allowance(&e, from.clone(), spender.clone(), amount, expiration_ledger);
-        e.events().publish((symbol_short!("approve"), from, spender), amount);
-    }
-        spend_allowance(&e, from.clone(), spender.clone(), amount);
-        spend_balance(&e, from.clone(), amount); decrease_supply(&e, amount);
-        e.events().publish((symbol_short!("burn"), from), amount);
-    }
-    pub fn approve(e: Env, from: Address, spender: Address, amount: i128, expiration_ledger: u32) {
-        from.require_auth(); require_positive_amount(amount);
-        write_allowance(&e, from.clone(), spender.clone(), amount, expiration_ledger);
-        e.events().publish((symbol_short!("approve"), from, spender), amount);
-    }
-        from.require_auth();
-        require_positive_amount(amount);
-        require_not_frozen_account(&e, &from);
-        require_not_frozen_account(&e, &to);
-        spend_balance(&e, from.clone(), amount);
-        receive_balance(&e, to.clone(), amount);
-        e.events().publish((symbol_short!("transfer"), from, to), amount);
-    }
-
-    pub fn transfer_from(e: Env, spender: Address, from: Address, to: Address, amount: i128) {
-        spender.require_auth(); require_positive_amount(amount);
-        require_not_frozen_account(&e, &from); require_not_frozen_account(&e, &to);
-        spend_allowance(&e, from.clone(), spender.clone(), amount);
-        spend_balance(&e, from.clone(), amount); receive_balance(&e, to.clone(), amount);
-        spend_allowance(&e, from.clone(), spender.clone(), amount);
-        spend_balance(&e, from.clone(), amount); receive_balance(&e, to.clone(), amount);
-        spend_allowance(&e, from.clone(), spender.clone(), amount);
-        spend_balance(&e, from.clone(), amount); receive_balance(&e, to.clone(), amount);
-        spender.require_auth();
-        require_positive_amount(amount);
-        require_not_frozen_account(&e, &from);
-        require_not_frozen_account(&e, &to);
-        spend_allowance(&e, from.clone(), spender.clone(), amount);
-        spend_balance(&e, from.clone(), amount);
-        receive_balance(&e, to.clone(), amount);
-        e.events().publish((symbol_short!("transfer"), from, to), amount);
-    }
-
-    pub fn burn(e: Env, from: Address, amount: i128) {
-        from.require_auth(); require_positive_amount(amount); require_not_frozen_account(&e, &from);
-        spend_balance(&e, from.clone(), amount); decrease_supply(&e, amount);
-        from.require_auth();
-        require_positive_amount(amount);
-        require_not_frozen_account(&e, &from);
-        spend_balance(&e, from.clone(), amount);
-        decrease_supply(&e, amount);
-        e.events().publish((symbol_short!("burn"), from), amount);
-    }
-
-    pub fn burn_from(e: Env, spender: Address, from: Address, amount: i128) {
-        spender.require_auth(); require_positive_amount(amount); require_not_frozen_account(&e, &from);
-        spend_allowance(&e, from.clone(), spender.clone(), amount);
-        spend_balance(&e, from.clone(), amount); decrease_supply(&e, amount);
-        spend_allowance(&e, from.clone(), spender.clone(), amount);
-        spend_balance(&e, from.clone(), amount); decrease_supply(&e, amount);
-        spend_allowance(&e, from.clone(), spender.clone(), amount);
-        spend_balance(&e, from.clone(), amount); decrease_supply(&e, amount);
-        spender.require_auth();
-        require_positive_amount(amount);
-        require_not_frozen_account(&e, &from);
-        spend_allowance(&e, from.clone(), spender.clone(), amount);
-        spend_balance(&e, from.clone(), amount);
-        decrease_supply(&e, amount);
-        e.events().publish((symbol_short!("burn"), from), amount);
-    }
-
-    pub fn approve(e: Env, from: Address, spender: Address, amount: i128, expiration_ledger: u32) {
-        from.require_auth(); require_positive_amount(amount);
-        write_allowance(&e, from.clone(), spender.clone(), amount, expiration_ledger);
-        e.events().publish((symbol_short!("approve"), from, spender), amount);
-        from.require_auth();
-        require_positive_amount(amount);
-        write_allowance(&e, from.clone(), spender.clone(), amount, expiration_ledger);
-        e.events().publish((symbol_short!("approve"), from, spender), amount);
-    }
-
-    pub fn transfer_with_memo(e: Env, from: Address, to: Address, amount: i128, memo: Bytes) {
-        if memo.len() > 64 {
-            panic!("memo too long");
-        }
-        require_not_frozen_account(&e, &from);
-        require_positive_amount(amount);
-        from.require_auth();
-        spend_balance(&e, from.clone(), amount);
-        receive_balance(&e, to.clone(), amount);
-        e.events()
-            .publish((symbol_short!("tr_memo"), from, to), (amount, memo));
-    }
-
-    // --- Read-only views ---
-
-    /// Returns current total token supply.
-    pub fn total_supply(e: Env) -> i128 {
-        read_total_supply(&e)
-    }
-
-    /// Returns token balance for `id`.
-    pub fn balance(e: Env, id: Address) -> i128 {
-        read_balance(&e, id)
-    }
-
-    /// Returns allowance from `from` to `spender`.
-    pub fn allowance(e: Env, from: Address, spender: Address) -> i128 {
-        read_allowance(&e, from, spender).amount
-    }
-    /// Returns all owners that granted non-zero allowance to `spender`.
-    pub fn allowances_for_spender(e: Env, spender: Address) -> Vec<Address> {
-        get_allowances_for_spender(&e, spender)
-    }
-
-    /// Returns current admin address.
     pub fn admin(e: Env) -> Address {
         read_admin(&e)
     }
-    /// Returns compact admin metadata for clients.
+    pub fn has_admin(e: Env) -> bool {
+        has_admin(&e)
+    }
     pub fn admin_info(e: Env) -> AdminInfo {
-        AdminInfo {
-            admin: read_admin(&e),
-            paused: false,
-        }
+        AdminInfo { admin: read_admin(&e), paused: is_paused(&e) }
+    }
+    pub fn get_pending_admin(e: Env) -> Option<Address> {
+        read_pending_admin(&e)
     }
 
-    /// Returns freeze state for account `id`.
+    // --- Pause ---
+    pub fn pause(e: Env, admin: Address) {
+        pause(&e, admin);
+    }
+    pub fn unpause(e: Env, admin: Address) {
+        unpause(&e, admin);
+    }
+    pub fn is_paused(e: Env) -> bool {
+        is_paused(&e)
+    }
+
+    // --- Token Operations ---
+    pub fn mint(e: Env, admin: Address, to: Address, amount: i128) {
+        if to == e.current_contract_address() {
+            panic!("InvalidRecipient: cannot transfer directly to the contract address — use create_escrow instead");
+        }
+        check_admin(&e, &admin);
+        require_not_paused(&e);
+        require_positive_amount(amount);
+        receive_balance(&e, to.clone(), amount);
+        increase_supply(&e, amount);
+        e.events().publish((symbol_short!("mint"), admin), (to, amount));
+    }
+    pub fn burn(e: Env, from: Address, amount: i128) {
+        from.require_auth();
+        require_not_paused(&e);
+        require_positive_amount(amount);
+        spend_balance(&e, from.clone(), amount);
+        decrease_supply(&e, amount);
+        e.events().publish((symbol_short!("burn"), from), amount);
+    }
+    pub fn burn_from(e: Env, spender: Address, from: Address, amount: i128) {
+        spender.require_auth();
+        require_not_frozen_account(&e, &from);
+        require_not_paused(&e);
+        require_positive_amount(amount);
+        spend_allowance(&e, from.clone(), spender.clone(), amount);
+        spend_balance(&e, from.clone(), amount);
+        decrease_supply(&e, amount);
+        e.events().publish((symbol_short!("burn_from"), spender), (from, amount));
+    }
+    pub fn set_clawback_cosigner(e: Env, admin: Address, cosigner: Address) {
+        check_admin(&e, &admin);
+        write_clawback_cosigner(&e, &cosigner);
+        e.events().publish((symbol_short!("cosigner"), admin), cosigner);
+    }
+    pub fn clawback(e: Env, admin: Address, from: Address, amount: i128) {
+        check_admin(&e, &admin);
+        if from == e.current_contract_address() {
+            panic!("InvalidClawback: cannot clawback from the contract address");
+        }
+        if let Some(cosigner) = read_clawback_cosigner(&e) {
+            cosigner.require_auth();
+        }
+        require_positive_amount(amount);
+        spend_balance(&e, from.clone(), amount);
+        decrease_supply(&e, amount);
+        e.events().publish((symbol_short!("clawback"), admin), (from, amount));
+    }
+    pub fn clawback_batch(e: Env, admin: Address, targets: Vec<(Address, i128)>) {
+        check_admin(&e, &admin);
+        if let Some(cosigner) = read_clawback_cosigner(&e) {
+            cosigner.require_auth();
+        }
+        clawback_batch(&e, admin, targets);
+    }
+    pub fn burn_from_batch(e: Env, spender: Address, targets: Vec<(Address, i128)>) {
+        burn_from_batch(&e, spender, targets);
+    }
+    pub fn transfer(e: Env, from: Address, to: Address, amount: i128) {
+        if to == e.current_contract_address() {
+            panic!("InvalidRecipient: cannot transfer directly to the contract address — use create_escrow instead");
+        }
+        from.require_auth();
+        require_not_paused(&e);
+        require_not_frozen_account(&e, &from);
+        require_positive_amount(amount);
+        spend_balance(&e, from.clone(), amount);
+        receive_balance(&e, to.clone(), amount);
+        e.events().publish((symbol_short!("transfer"), from), (to, amount));
+    }
+    pub fn transfer_from(e: Env, spender: Address, from: Address, to: Address, amount: i128) {
+        if to == e.current_contract_address() {
+            panic!("InvalidRecipient: cannot transfer directly to the contract address — use create_escrow instead");
+        }
+        spender.require_auth();
+        require_not_paused(&e);
+        require_not_frozen_account(&e, &from);
+        require_positive_amount(amount);
+        validate_allowance(&e, from.clone(), spender.clone(), amount);
+        spend_allowance(&e, from.clone(), spender.clone(), amount);
+        spend_balance(&e, from.clone(), amount);
+        receive_balance(&e, to.clone(), amount);
+        e.events().publish((symbol_short!("xfer_from"), from), (to, amount));
+    }
+    pub fn transfer_with_memo(e: Env, from: Address, to: Address, amount: i128, memo: Bytes) {
+        from.require_auth();
+        require_not_paused(&e);
+        require_not_frozen_account(&e, &from);
+        require_positive_amount(amount);
+        spend_balance(&e, from.clone(), amount);
+        receive_balance(&e, to.clone(), amount);
+        e.events().publish((symbol_short!("xfer_memo"), from), (to, amount, memo));
+    }
+    pub fn approve(e: Env, from: Address, spender: Address, amount: i128, expiration_ledger: u32) {
+        from.require_auth();
+        write_allowance(&e, from.clone(), spender.clone(), amount, expiration_ledger);
+        e.events().publish((symbol_short!("approve"), from), (spender, amount));
+    }
+    pub fn freeze(e: Env, target: Address) {
+        let admin = read_admin(&e);
+        check_admin(&e, &admin);
+        freeze_account(&e, admin, target);
+    }
+    pub fn unfreeze(e: Env, target: Address) {
+        let admin = read_admin(&e);
+        check_admin(&e, &admin);
+        unfreeze_account(&e, admin, target);
+    }
+    pub fn freeze_batch(e: Env, admin: Address, targets: Vec<Address>) {
+        freeze_batch(&e, admin, targets);
+    }
+    pub fn unfreeze_batch(e: Env, admin: Address, targets: Vec<Address>) {
+        unfreeze_batch(&e, admin, targets);
+    }
+    pub fn approve_batch(e: Env, from: Address, approvals: Vec<(Address, i128, u32)>) {
+        approve_batch(&e, from, approvals);
+    }
+    pub fn transfer_batch_with_memo(e: Env, from: Address, recipients: Vec<(Address, i128, Bytes)>) {
+        transfer_batch_with_memo(&e, from, recipients);
+    }
+
+    // --- Views ---
+    pub fn total_supply(e: Env) -> i128 {
+        read_total_supply(&e)
+    }
+    pub fn max_supply(e: Env) -> i128 {
+        read_max_supply(&e)
+    }
+    pub fn balance(e: Env, id: Address) -> i128 {
+        read_balance(&e, id)
+    }
+    pub fn balance_of_batch(e: Env, addresses: Vec<Address>) -> Vec<i128> {
+        let mut balances: Vec<i128> = Vec::new(&e);
+        for i in 0..addresses.len() {
+            let addr = addresses.get(i).unwrap();
+            balances.push_back(read_balance(&e, addr));
+        }
+        balances
+    }
+    pub fn allowance(e: Env, from: Address, spender: Address) -> i128 {
+        read_allowance(&e, from, spender).amount
+    }
     pub fn is_frozen(e: Env, id: Address) -> bool {
         read_frozen_status(&e, &id)
     }
-
-    /// Returns token decimal precision.
+    pub fn is_frozen_batch(e: Env, addresses: Vec<Address>) -> Vec<bool> {
+        let mut result: Vec<bool> = Vec::new(&e);
+        for i in 0..addresses.len() {
+            let addr = addresses.get(i).unwrap();
+            result.push_back(read_frozen_status(&e, &addr));
+        }
+        result
+    }
+    pub fn total_holders(e: Env) -> u32 {
+        let key = DataKey::HolderSet;
+        let holders: Vec<Address> = e.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(&e));
+        holders.len()
+    }
+    pub fn get_holders(e: Env, offset: u32, limit: u32) -> Vec<Address> {
+        let key = DataKey::HolderSet;
+        let all: Vec<Address> = e.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(&e));
+        let mut result: Vec<Address> = Vec::new(&e);
+        let end = (offset + limit).min(all.len());
+        let mut i = offset;
+        while i < end {
+            result.push_back(all.get(i).unwrap());
+            i += 1;
+        }
+        result
+    }
+    pub fn frozen_accounts(e: Env) -> Vec<Address> {
+        get_frozen_accounts(&e)
+    }
     pub fn decimals(e: Env) -> u32 {
         read_decimal(&e)
     }
-
-    /// Returns token display name.
     pub fn name(e: Env) -> String {
         read_name(&e)
     }
-
-    /// Returns token symbol.
     pub fn symbol(e: Env) -> String {
         read_symbol(&e)
     }
-
+    pub fn get_allowances_for_spender(e: Env, spender: Address) -> Vec<Address> {
+        get_allowances_for_spender(&e, spender)
+    }
+    pub fn revoke_all_allowances(e: Env, from: Address) {
+        revoke_all_allowances(&e, from);
+    }
     pub fn token_info(e: Env) -> TokenInfo {
         TokenInfo {
             name: read_name(&e),
@@ -423,244 +314,125 @@ impl VeritixToken {
             total_supply: read_total_supply(&e),
         }
     }
-
-    /// Admin can update only name/symbol; decimal remains immutable.
     pub fn update_metadata(e: Env, admin: Address, name: Option<String>, symbol: Option<String>) {
         check_admin(&e, &admin);
         update_metadata_fields(&e, name, symbol);
         e.events().publish((symbol_short!("meta_upd"), admin), ());
     }
+    pub fn contract_stats(e: Env) -> ContractStats {
+        crate::storage_types::bump_instance(&e);
+        ContractStats {
+            escrow_count: crate::storage_types::read_counter(&e, &crate::storage_types::DataKey::EscrowCount),
+            split_count: crate::storage_types::read_counter(&e, &crate::storage_types::DataKey::SplitCount),
+            recurring_count: crate::storage_types::read_counter(&e, &crate::storage_types::DataKey::RecurringCount),
+            dispute_count: crate::storage_types::read_counter(&e, &crate::storage_types::DataKey::DisputeCount),
+            total_supply: read_total_supply(&e),
+        }
+    }
 
     // --- Escrow ---
-    pub fn total_supply(e: Env) -> i128 { read_total_supply(&e) }
-    pub fn balance(e: Env, id: Address) -> i128 { read_balance(&e, id) }
-    pub fn allowance(e: Env, from: Address, spender: Address) -> i128 { read_allowance(&e, from, spender).amount }
-    pub fn admin(e: Env) -> Address { read_admin(&e) }
-    pub fn is_frozen(e: Env, id: Address) -> bool { read_frozen_status(&e, &id) }
-    pub fn decimals(e: Env) -> u32 { read_decimal(&e) }
-    pub fn name(e: Env) -> String { read_name(&e) }
-    pub fn symbol(e: Env) -> String { read_symbol(&e) }
-    pub fn create_escrow(e: Env, depositor: Address, beneficiary: Address, amount: i128, expiry_ledger: u32) -> u32 { escrow_create(&e, depositor, beneficiary, amount, expiry_ledger) }
-    pub fn release_escrow(e: Env, caller: Address, escrow_id: u32) { escrow_release(&e, caller, escrow_id) }
-    pub fn refund_escrow(e: Env, caller: Address, escrow_id: u32) { escrow_refund(&e, caller, escrow_id) }
-    pub fn get_escrow(e: Env, escrow_id: u32) -> EscrowRecord { escrow_get(&e, escrow_id) }
-    pub fn escrow_count(e: Env) -> u32 { crate::storage_types::bump_instance(&e); crate::storage_types::read_counter(&e, &crate::storage_types::DataKey::EscrowCount) }
-    pub fn admin_settle_escrow(e: Env, admin: Address, escrow_id: u32, recipient: Address) { escrow_admin_settle(&e, admin, escrow_id, recipient) }
-    pub fn open_dispute(e: Env, claimant: Address, escrow_id: u32, resolver: Address) -> u32 { open_dispute(&e, claimant, escrow_id, resolver) }
-    pub fn resolve_dispute(e: Env, resolver: Address, dispute_id: u32, release_to_beneficiary: bool) { resolve_dispute(&e, resolver, dispute_id, release_to_beneficiary) }
-    pub fn get_dispute(e: Env, dispute_id: u32) -> DisputeRecord { dispute_get(&e, dispute_id) }
-    pub fn dispute_count(e: Env) -> u32 { crate::storage_types::bump_instance(&e); crate::storage_types::read_counter(&e, &crate::storage_types::DataKey::DisputeCount) }
-    pub fn appeal_dispute(e: Env, appellant: Address, dispute_id: u32, new_resolver: Address) { appeal_dispute(&e, appellant, dispute_id, new_resolver) }
-    pub fn get_dispute_history_for_escrow(e: Env, escrow_id: u32) -> Vec<u32> { get_dispute_history_for_escrow(&e, escrow_id) }
-    pub fn create_split(e: Env, sender: Address, recipients: Vec<SplitRecipient>, total_amount: i128) -> u32 { split_create(&e, sender, recipients, total_amount) }
-    pub fn distribute(e: Env, caller: Address, split_id: u32) { split_distribute(&e, caller, split_id) }
-    pub fn cancel_split(e: Env, caller: Address, split_id: u32) { split_cancel(&e, caller, split_id) }
-    pub fn get_split(e: Env, split_id: u32) -> SplitRecord { split_get(&e, split_id) }
-    pub fn split_count(e: Env) -> u32 { crate::storage_types::bump_instance(&e); crate::storage_types::read_counter(&e, &crate::storage_types::DataKey::SplitCount) }
-    pub fn setup_recurring(e: Env, payer: Address, payee: Address, amount: i128, interval: u32) -> u32 { setup_recurring(&e, payer, payee, amount, interval) }
-    pub fn execute_recurring(e: Env, recurring_id: u32) { execute_recurring(&e, recurring_id) }
-    pub fn cancel_recurring(e: Env, caller: Address, recurring_id: u32) { cancel_recurring(&e, caller, recurring_id) }
-    pub fn get_recurring(e: Env, recurring_id: u32) -> RecurringRecord { get_recurring(&e, recurring_id) }
-    pub fn recurring_count(e: Env) -> u32 { crate::storage_types::bump_instance(&e); crate::storage_types::read_counter(&e, &crate::storage_types::DataKey::RecurringCount) }
-
-    /// Creates an escrow and returns its ID.
     pub fn create_escrow(e: Env, depositor: Address, beneficiary: Address, amount: i128, expiry_ledger: u32) -> u32 {
         escrow_create(&e, depositor, beneficiary, amount, expiry_ledger)
     }
-    pub fn release_escrow(e: Env, caller: Address, escrow_id: u32) { escrow_release(&e, caller, escrow_id) }
-    pub fn refund_escrow(e: Env, caller: Address, escrow_id: u32) { escrow_refund(&e, caller, escrow_id) }
-    pub fn get_escrow(e: Env, escrow_id: u32) -> EscrowRecord { escrow_get(&e, escrow_id) }
-
-    /// Releases escrow funds to beneficiary.
     pub fn release_escrow(e: Env, caller: Address, escrow_id: u32) {
         escrow_release(&e, caller, escrow_id)
     }
-
-    /// Refunds escrow funds to depositor.
     pub fn refund_escrow(e: Env, caller: Address, escrow_id: u32) {
         escrow_refund(&e, caller, escrow_id)
     }
-
-    /// Returns escrow record for `escrow_id`.
     pub fn get_escrow(e: Env, escrow_id: u32) -> EscrowRecord {
         escrow_get(&e, escrow_id)
     }
-
+    pub fn admin_settle_escrow(e: Env, admin: Address, escrow_id: u32, recipient: Address) {
+        escrow_admin_settle(&e, admin, escrow_id, recipient)
+    }
     pub fn escrow_count(e: Env) -> u32 {
         crate::storage_types::bump_instance(&e);
         crate::storage_types::read_counter(&e, &crate::storage_types::DataKey::EscrowCount)
     }
-    pub fn admin_settle_escrow(e: Env, admin: Address, escrow_id: u32, recipient: Address) {
-        escrow_admin_settle(&e, admin, escrow_id, recipient)
-    }
 
-    pub fn admin_settle_escrow(e: Env, admin: Address, escrow_id: u32, recipient: Address) {
-        escrow_admin_settle(&e, admin, escrow_id, recipient)
-    }
-
-    /// Opens a dispute for an escrow and returns dispute ID.
-    pub fn open_dispute(e: Env, claimant: Address, escrow_id: u32, resolver: Address) -> u32 {
-        open_dispute(&e, claimant, escrow_id, resolver)
+    // --- Disputes ---
+    pub fn open_dispute(e: Env, claimant: Address, escrow_id: u32, resolver: Address, evidence: Bytes, expiry_ledger: u32) -> u32 {
+        open_dispute(&e, claimant, escrow_id, resolver, evidence, expiry_ledger)
     }
     pub fn resolve_dispute(e: Env, resolver: Address, dispute_id: u32, release_to_beneficiary: bool) {
         resolve_dispute(&e, resolver, dispute_id, release_to_beneficiary)
     }
-    pub fn get_dispute(e: Env, dispute_id: u32) -> DisputeRecord { dispute_get(&e, dispute_id) }
-        resolve_dispute(&e, resolver, dispute_id, release_to_beneficiary)
+    pub fn expire_dispute(e: Env, dispute_id: u32) {
+        expire_dispute(&e, dispute_id)
     }
-    pub fn get_dispute(e: Env, dispute_id: u32) -> DisputeRecord { dispute_get(&e, dispute_id) }
-        resolve_dispute(&e, resolver, dispute_id, release_to_beneficiary)
-    }
-    pub fn get_dispute(e: Env, dispute_id: u32) -> DisputeRecord { dispute_get(&e, dispute_id) }
-        resolve_dispute(&e, resolver, dispute_id, release_to_beneficiary)
-    }
-    pub fn get_dispute(e: Env, dispute_id: u32) -> DisputeRecord { dispute_get(&e, dispute_id) }
-
-    /// Resolves dispute by releasing to beneficiary or refunding depositor.
-    pub fn resolve_dispute(
-        e: Env,
-        resolver: Address,
-        dispute_id: u32,
-        release_to_beneficiary: bool,
-    ) {
-    pub fn resolve_dispute(e: Env, resolver: Address, dispute_id: u32, release_to_beneficiary: bool) {
-        resolve_dispute(&e, resolver, dispute_id, release_to_beneficiary)
-    }
-
-    /// Returns dispute record for `dispute_id`.
     pub fn get_dispute(e: Env, dispute_id: u32) -> DisputeRecord {
         dispute_get(&e, dispute_id)
     }
-
+    pub fn get_dispute_history_for_escrow(e: Env, escrow_id: u32) -> Vec<u32> {
+        get_dispute_history_for_escrow(&e, escrow_id)
+    }
+    pub fn get_open_disputes(e: Env) -> Vec<u32> {
+        get_open_disputes(&e)
+    }
     pub fn dispute_count(e: Env) -> u32 {
         crate::storage_types::bump_instance(&e);
         crate::storage_types::read_counter(&e, &crate::storage_types::DataKey::DisputeCount)
     }
-    pub fn create_split(e: Env, sender: Address, recipients: Vec<SplitRecipient>, total_amount: i128) -> u32 {
-        split_create(&e, sender, recipients, total_amount)
-    }
-    pub fn distribute(e: Env, caller: Address, split_id: u32) { split_distribute(&e, caller, split_id) }
-    pub fn cancel_split(e: Env, caller: Address, split_id: u32) { split_cancel(&e, caller, split_id) }
-    pub fn get_split(e: Env, split_id: u32) -> SplitRecord { split_get(&e, split_id) }
-    pub fn get_disputes_by_resolver(e: Env, resolver: Address) -> Vec<u32> {
-        get_disputes_by_resolver(&e, resolver)
-    pub fn get_open_disputes(e: Env) -> Vec<u32> { get_open_disputes(&e) }
 
-    pub fn create_split(e: Env, sender: Address, recipients: Vec<SplitRecipient>, total_amount: i128) -> u32 {
-        split_create(&e, sender, recipients, total_amount)
-    }
-    pub fn distribute(e: Env, caller: Address, split_id: u32) { split_distribute(&e, caller, split_id) }
-    pub fn cancel_split(e: Env, caller: Address, split_id: u32) { split_cancel(&e, caller, split_id) }
-    pub fn get_split(e: Env, split_id: u32) -> SplitRecord { split_get(&e, split_id) }
-        split_create(&e, sender, recipients, total_amount)
-    }
-    pub fn distribute(e: Env, caller: Address, split_id: u32) { split_distribute(&e, caller, split_id) }
-    pub fn cancel_split(e: Env, caller: Address, split_id: u32) { split_cancel(&e, caller, split_id) }
-    pub fn get_split(e: Env, split_id: u32) -> SplitRecord { split_get(&e, split_id) }
     // --- Splitter ---
-
-    /// Creates a split payment plan and returns split ID.
-    pub fn create_split(
-        e: Env,
-        sender: Address,
-        recipients: Vec<SplitRecipient>,
-        total_amount: i128,
-    ) -> u32 {
     pub fn create_split(e: Env, sender: Address, recipients: Vec<SplitRecipient>, total_amount: i128) -> u32 {
         split_create(&e, sender, recipients, total_amount)
     }
-
-    /// Executes split distribution to recipients.
     pub fn distribute(e: Env, caller: Address, split_id: u32) {
         split_distribute(&e, caller, split_id)
     }
-
-    /// Cancels an active split and returns remainder to sender.
     pub fn cancel_split(e: Env, caller: Address, split_id: u32) {
         split_cancel(&e, caller, split_id)
     }
-
-    /// Returns split record for `split_id`.
     pub fn get_split(e: Env, split_id: u32) -> SplitRecord {
         split_get(&e, split_id)
-    pub fn create_split(e: Env, sender: Address, recipients: Vec<SplitRecipient>, total_amount: i128) -> u32 {
-        split_create(&e, sender, recipients, total_amount)
     }
-    pub fn distribute(e: Env, caller: Address, split_id: u32) { split_distribute(&e, caller, split_id) }
-    pub fn cancel_split(e: Env, caller: Address, split_id: u32) { split_cancel(&e, caller, split_id) }
-    pub fn get_split(e: Env, split_id: u32) -> SplitRecord { split_get(&e, split_id) }
-
+    pub fn replace_split_recipient(e: Env, sender: Address, split_id: u32, old_recipient: Address, new_recipient: Address) {
+        crate::splitter::replace_split_recipient(&e, sender, split_id, old_recipient, new_recipient)
+    }
     pub fn split_count(e: Env) -> u32 {
         crate::storage_types::bump_instance(&e);
         crate::storage_types::read_counter(&e, &crate::storage_types::DataKey::SplitCount)
     }
-    pub fn setup_recurring(e: Env, payer: Address, payee: Address, amount: i128, interval: u32) -> u32 {
-        setup_recurring(&e, payer, payee, amount, interval)
-    }
-    pub fn execute_recurring(e: Env, recurring_id: u32) { execute_recurring(&e, recurring_id) }
-    pub fn cancel_recurring(e: Env, caller: Address, recurring_id: u32) { cancel_recurring(&e, caller, recurring_id) }
-    pub fn get_recurring(e: Env, recurring_id: u32) -> RecurringRecord { get_recurring(&e, recurring_id) }
 
-    pub fn setup_recurring(e: Env, payer: Address, payee: Address, amount: i128, interval: u32) -> u32 {
-        setup_recurring(&e, payer, payee, amount, interval)
-    }
-    pub fn execute_recurring(e: Env, recurring_id: u32) { execute_recurring(&e, recurring_id) }
-    pub fn cancel_recurring(e: Env, caller: Address, recurring_id: u32) { cancel_recurring(&e, caller, recurring_id) }
-    pub fn get_recurring(e: Env, recurring_id: u32) -> RecurringRecord { get_recurring(&e, recurring_id) }
-        setup_recurring(&e, payer, payee, amount, interval)
-    }
-    pub fn execute_recurring(e: Env, recurring_id: u32) { execute_recurring(&e, recurring_id) }
-    pub fn cancel_recurring(e: Env, caller: Address, recurring_id: u32) { cancel_recurring(&e, caller, recurring_id) }
-    pub fn get_recurring(e: Env, recurring_id: u32) -> RecurringRecord { get_recurring(&e, recurring_id) }
-        setup_recurring(&e, payer, payee, amount, interval)
-    }
-    pub fn execute_recurring(e: Env, recurring_id: u32) { execute_recurring(&e, recurring_id) }
-    pub fn cancel_recurring(e: Env, caller: Address, recurring_id: u32) { cancel_recurring(&e, caller, recurring_id) }
-    pub fn get_recurring(e: Env, recurring_id: u32) -> RecurringRecord { get_recurring(&e, recurring_id) }
     // --- Recurring Payments ---
-
-    /// Creates a recurring payment and returns recurring ID.
-    pub fn setup_recurring(
-        e: Env,
-        payer: Address,
-        payee: Address,
-        amount: i128,
-        interval: u32,
-    ) -> u32 {
     pub fn setup_recurring(e: Env, payer: Address, payee: Address, amount: i128, interval: u32) -> u32 {
         setup_recurring(&e, payer, payee, amount, interval)
     }
-
-    /// Executes one interval payment for a recurring plan.
     pub fn execute_recurring(e: Env, recurring_id: u32) {
         execute_recurring(&e, recurring_id)
     }
-
-    /// Cancels recurring payment plan.
     pub fn cancel_recurring(e: Env, caller: Address, recurring_id: u32) {
         cancel_recurring(&e, caller, recurring_id)
     }
-
-    /// Returns recurring payment record for `recurring_id`.
+    pub fn pause_recurring(e: Env, caller: Address, recurring_id: u32) {
+        pause_recurring(&e, caller, recurring_id)
+    }
+    pub fn resume_recurring(e: Env, caller: Address, recurring_id: u32) {
+        resume_recurring(&e, caller, recurring_id)
+    }
+    pub fn amend_recurring(e: Env, caller: Address, recurring_id: u32, new_amount: Option<i128>, new_interval: Option<u32>) {
+        amend_recurring(&e, caller, recurring_id, new_amount, new_interval)
+    }
     pub fn get_recurring(e: Env, recurring_id: u32) -> RecurringRecord {
         get_recurring(&e, recurring_id)
     }
-
+    pub fn get_recurring_by_payer(e: Env, payer: Address) -> Vec<u32> {
+        get_recurring_by_payer(&e, payer)
+    }
+    pub fn recurring_count_for_payer(e: Env, payer: Address) -> u32 {
+        recurring_count_for_payer(&e, payer)
+    }
     pub fn recurring_count(e: Env) -> u32 {
         crate::storage_types::bump_instance(&e);
         crate::storage_types::read_counter(&e, &crate::storage_types::DataKey::RecurringCount)
     }
-    pub fn amend_recurring(e: Env, caller: Address, recurring_id: u32, new_amount: Option<i128>, new_interval: Option<u32>) {
-        amend_recurring(&e, caller, recurring_id, new_amount, new_interval)
-    pub fn get_recurring_by_payer(e: Env, payer: Address) -> Vec<u32> {
-        get_recurring_by_payer(&e, payer)
-
-    pub fn pause_recurring(e: Env, caller: Address, recurring_id: u32) {
-        pause_recurring(&e, caller, recurring_id)
+    pub fn get_next_execution_ledger(e: Env, recurring_id: u32) -> u32 {
+        get_next_execution_ledger(&e, recurring_id)
     }
-
-    pub fn resume_recurring(e: Env, caller: Address, recurring_id: u32) {
-        resume_recurring(&e, caller, recurring_id)
+    pub fn is_executable(e: Env, recurring_id: u32) -> bool {
+        is_executable(&e, recurring_id)
     }
 
     /// Returns the first active escrow ID between depositor and beneficiary, or None.

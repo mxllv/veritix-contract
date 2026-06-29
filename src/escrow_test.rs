@@ -58,6 +58,32 @@ fn test_create_indexes_both_parties() {
 }
 
 #[test]
+fn test_escrowed_total_tracks_active_amounts() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
+
+    assert_eq!(t.client.escrowed_total(), 0);
+
+    let first = t.client.create_escrow(
+        &t.depositor, &t.beneficiary, &t.token, &1_000, &expiry, &empty_memo(&t.e),
+    );
+    assert_eq!(first, 0);
+    assert_eq!(t.client.escrowed_total(), 1_000);
+
+    let second = t.client.create_escrow(
+        &t.depositor, &t.beneficiary, &t.token, &500, &expiry, &empty_memo(&t.e),
+    );
+    assert_eq!(second, 1);
+    assert_eq!(t.client.escrowed_total(), 1_500);
+
+    t.client.release_escrow(&t.depositor, &first);
+    assert_eq!(t.client.escrowed_total(), 500);
+
+    t.client.refund_escrow(&t.depositor, &second);
+    assert_eq!(t.client.escrowed_total(), 0);
+}
+
+#[test]
 fn test_beneficiary_index_accumulates() {
     let t = setup();
     let expiry = t.e.ledger().sequence() + 1000;
@@ -389,4 +415,142 @@ fn test_create_escrow_event_with_empty_memo() {
 
     let list = t.client.get_escrows_by_depositor(&t.depositor);
     assert_eq!(list.get(0).unwrap(), id);
+}
+
+#[test]
+fn test_create_escrow_requires_depositor_auth() {
+    let env = Env::default();
+    
+    // Explicitly DO NOT call env.mock_all_auths() here.
+    // This ensures Soroban enforces cryptographic signatures strictly.
+
+    let depositor = Address::generate(&env);
+    let beneficiary = Address::generate(&env);
+    let token_addr = Address::generate(&env);
+    let memo = Bytes::new(&env);
+
+    // Attempting to invoke create_escrow should fail because the contract 
+    // demands a signature that we haven't provided.
+    let result = env.try_invoke_contract_with_address(
+        &depositor,
+        &|env| {
+            create_escrow(
+                env.clone(),
+                depositor.clone(),
+                beneficiary.clone(),
+                token_addr.clone(),
+                1000,
+                100,
+                memo.clone(),
+            )
+        }
+    );
+
+    // Assert that the call failed due to an authorization error
+    assert!(result.is_err(), "Expected transaction to fail due to missing depositor authentication.");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage_types::MAX_ESCROW_AMOUNT;
+    use soroban_sdk::{testutils::Address as _, Env, Bytes};
+
+    #[test]
+    #[should_panic(expected = "AmountTooLarge: use multi-party escrow for large amounts")]
+    fn test_create_escrow_rejects_exceeded_cap_amount() {
+        let env = Env::default();
+        let depositor = env.accounts().generate();
+        let beneficiary = env.accounts().generate();
+        let token = env.accounts().generate();
+        let memo = Bytes::new(&env);
+
+        // Supply an amount exactly 1 unit over the allowed global safety cap
+        let illegal_excessive_amount = MAX_ESCROW_AMOUNT + 1;
+
+        create_escrow(
+            env,
+            depositor,
+            beneficiary,
+            token,
+            illegal_excessive_amount,
+            12345,
+            memo,
+        );
+    }
+}
+
+#[cfg(test)]
+mod lien_tests {
+    use soroban_sdk::{testutils::{Address as _, Ledger}, Address, Bytes, Env};
+    use crate::contract::{VeriTixPay, VeriTixPayClient};
+    use crate::test::create_token_contract;
+
+    #[test]
+    fn test_lien_mechanics() {
+        let e = Env::default();
+        e.mock_all_auths();
+        e.ledger().with_mut(|l| l.sequence = 100);
+
+        let depositor = Address::generate(&e);
+        let beneficiary = Address::generate(&e);
+        let creditor = Address::generate(&e);
+        let admin = Address::generate(&e);
+
+        let contract_id = e.register_contract(None, VeriTixPay);
+        let client = VeriTixPayClient::new(&e, &contract_id);
+        
+        let token = create_token_contract(&e, &admin);
+        let token_client = soroban_sdk::token::Client::new(&e, &token);
+        
+        token_client.mint(&depositor, &2000);
+        
+        let memo = Bytes::from_slice(&e, b"test lien");
+        let escrow_id = client.create_escrow(&depositor, &beneficiary, &token, &1000, &200, &memo);
+        
+        // Place a lien
+        client.place_lien(&creditor, &escrow_id, &300);
+        
+        // Release the escrow, should send 300 to creditor and 700 to beneficiary
+        client.release_escrow(&depositor, &escrow_id);
+        
+        assert_eq!(token_client.balance(&creditor), 300);
+        assert_eq!(token_client.balance(&beneficiary), 700);
+    }
+// ── Batch and Age Query tests ──────────────────────────────────────────────────
+
+#[test]
+fn test_get_escrows_batch() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
+
+    let id1 = t.client.create_escrow(&t.depositor, &t.beneficiary, &t.token, &100, &expiry, &empty_memo(&t.e));
+    let id2 = t.client.create_escrow(&t.depositor, &t.beneficiary, &t.token, &200, &expiry, &empty_memo(&t.e));
+
+    let ids = soroban_sdk::vec![&t.e, id1, id2, 999];
+    let batch = t.client.get_escrows_batch(&ids);
+
+    assert_eq!(batch.len(), 3);
+    assert!(batch.get(0).unwrap().is_some());
+    assert_eq!(batch.get(0).unwrap().unwrap().amount, 100);
+    assert!(batch.get(1).unwrap().is_some());
+    assert_eq!(batch.get(1).unwrap().unwrap().amount, 200);
+    assert!(batch.get(2).unwrap().is_none());
+}
+
+#[test]
+fn test_get_escrow_age() {
+    let t = setup();
+    let start_ledger = t.e.ledger().sequence();
+    let expiry = start_ledger + 1000;
+
+    let id = t.client.create_escrow(&t.depositor, &t.beneficiary, &t.token, &100, &expiry, &empty_memo(&t.e));
+
+    assert_eq!(t.client.get_escrow_age(&id), 0);
+
+    t.e.ledger().set_sequence_number(start_ledger + 5);
+    assert_eq!(t.client.get_escrow_age(&id), 5);
+
+    t.client.release_escrow(&t.beneficiary, &id);
+    assert_eq!(t.client.get_escrow_age(&id), 0);
 }

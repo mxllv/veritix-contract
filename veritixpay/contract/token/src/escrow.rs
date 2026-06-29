@@ -65,7 +65,7 @@ pub fn create_escrow(
     // Optional observability event
     e.events().publish(
         (
-            symbol_short!("escrow_created"),
+            symbol_short!("escr_crtd"),
             depositor.clone(),
             beneficiary.clone(),
         ),
@@ -96,9 +96,6 @@ pub fn release_escrow(e: &Env, caller: Address, escrow_id: u32) {
 }
 
 pub fn try_release_escrow(e: &Env, caller: Address, escrow_id: u32) -> Result<(), &'static str> {
-    // Auth: caller must sign the transaction
-    caller.require_auth();
-
     let mut escrow = try_get_escrow(e, escrow_id)?;
 
     // Authorization: only the beneficiary can release
@@ -111,6 +108,9 @@ pub fn try_release_escrow(e: &Env, caller: Address, escrow_id: u32) -> Result<()
         return Err("already settled");
     }
 
+    // Auth: caller must sign the transaction (after state checks)
+    caller.require_auth();
+
     // Mark as released and persist
     escrow.released = true;
     write_persistent_record(e, &DataKey::Escrow(escrow_id), &escrow);
@@ -122,7 +122,7 @@ pub fn try_release_escrow(e: &Env, caller: Address, escrow_id: u32) -> Result<()
     // Event for observability
     e.events().publish(
         (
-            symbol_short!("escrow_released"),
+            symbol_short!("escr_rls"),
             escrow_id,
             escrow.beneficiary.clone(),
         ),
@@ -138,10 +138,12 @@ pub fn refund_escrow(e: &Env, caller: Address, escrow_id: u32) {
 }
 
 pub fn try_refund_escrow(e: &Env, caller: Address, escrow_id: u32) -> Result<(), &'static str> {
-    // Auth: caller must sign the transaction
-    caller.require_auth();
-
     let mut escrow = try_get_escrow(e, escrow_id)?;
+
+    // Block refund if an active dispute exists — the resolver must settle first.
+    if e.storage().persistent().has(&DataKey::EscrowDispute(escrow_id)) {
+        panic!("DisputeOpen: cannot refund while a dispute is active — wait for resolution");
+    }
 
     // Authorization: only the original depositor can refund, unless the escrow has expired
     let expired = e.ledger().sequence() > escrow.expiry_ledger;
@@ -154,6 +156,9 @@ pub fn try_refund_escrow(e: &Env, caller: Address, escrow_id: u32) -> Result<(),
         return Err("already settled");
     }
 
+    // Auth: caller must sign the transaction (after state checks)
+    caller.require_auth();
+
     // Mark as refunded and persist
     escrow.refunded = true;
     write_persistent_record(e, &DataKey::Escrow(escrow_id), &escrow);
@@ -165,7 +170,7 @@ pub fn try_refund_escrow(e: &Env, caller: Address, escrow_id: u32) -> Result<(),
     // Event for observability
     e.events().publish(
         (
-            symbol_short!("escrow_refunded"),
+            symbol_short!("escr_rfnd"),
             escrow_id,
             escrow.depositor.clone(),
         ),
@@ -186,14 +191,48 @@ pub fn try_get_escrow(e: &Env, escrow_id: u32) -> Result<EscrowRecord, &'static 
         e.storage()
             .persistent()
             .extend_ttl(&key, ESCROW_LIFETIME_THRESHOLD, ESCROW_BUMP_AMOUNT);
-        Ok(read_persistent_record(
+        let record: EscrowRecord = read_persistent_record(
             e,
             &key,
             "escrow not found",
-        ))
+        );
+        if !record.released && !record.refunded {
+            let warned_key = DataKey::ExpiryWarned(escrow_id);
+            if !e.storage().instance().has(&warned_key)
+                && record.expiry_ledger >= e.ledger().sequence()
+                && record.expiry_ledger - e.ledger().sequence() < WARNING_WINDOW
+            {
+                e.storage().instance().set(&warned_key, &true);
+                e.events().publish(
+                    (symbol_short!("exp_warn"), escrow_id),
+                    (record.expiry_ledger, e.ledger().sequence()),
+                );
+            }
+        }
+        Ok(record)
     } else {
         Err("escrow not found")
     }
+}
+
+/// Top up an existing escrow with additional funds. Rejected if a dispute is open.
+pub fn topup_escrow(e: &Env, depositor: Address, escrow_id: u32, amount: i128) {
+    depositor.require_auth();
+    require_positive_amount(amount);
+    if e.storage().persistent().has(&DataKey::EscrowDispute(escrow_id)) {
+        panic!("DisputeOpen: cannot top up an escrow under active dispute");
+    }
+    let mut record = get_escrow(e, escrow_id);
+    if record.released || record.refunded {
+        panic!("escrow already settled");
+    }
+    if record.depositor != depositor {
+        panic!("not the depositor");
+    }
+    spend_balance(e, depositor.clone(), amount);
+    receive_balance(e, e.current_contract_address(), amount);
+    record.amount += amount;
+    write_persistent_record(e, &DataKey::Escrow(escrow_id), &record);
 }
 
 /// Admin escape hatch: forcibly settles a stuck escrow by sending funds to
@@ -203,7 +242,6 @@ pub fn try_get_escrow(e: &Env, escrow_id: u32) -> Result<EscrowRecord, &'static 
 /// Only the contract admin may call this. The escrow must not already be settled.
 pub fn admin_settle_escrow(e: &Env, admin: Address, escrow_id: u32, recipient: Address) {
     check_admin(e, &admin);
-    admin.require_auth();
 
     let mut escrow = try_get_escrow(e, escrow_id)
         .unwrap_or_else(|err| panic!("{}", err));
@@ -219,7 +257,7 @@ pub fn admin_settle_escrow(e: &Env, admin: Address, escrow_id: u32, recipient: A
     receive_balance(e, recipient.clone(), escrow.amount);
 
     e.events().publish(
-        (symbol_short!("adm_settle"), escrow_id, admin),
+        (symbol_short!("adm_sttl"), escrow_id, admin),
         (recipient, escrow.amount),
     );
 }

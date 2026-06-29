@@ -1,12 +1,17 @@
 //! Shared storage model.
 //! Defines instance-vs-persistent key ownership, value shapes, and TTL bump policy constants.
-//! Instance storage is for contract-global config/counters; persistent storage is for user/payment records.
 
 use soroban_sdk::{contracttype, Address, Env, IntoVal, TryFromVal, Val};
-﻿use soroban_sdk::{contracttype, Address, Env, IntoVal, TryFromVal, Val};
 
-pub const BALANCE_LIFETIME_THRESHOLD: u32 = 518400;
-pub const BALANCE_BUMP_AMOUNT: u32 = 535000;
+/// Target real-time lifetime: ~1 year (at least 365 days).
+/// Calculation: 31,536,000 seconds / 5 seconds per ledger = 6,307,200 ledgers.
+/// 6,310,000 provides just over 1 year of storage TTL to ensure users do not
+/// lose their balances due to archival within a standard 1-year inactivity period.
+pub const BALANCE_LIFETIME_THRESHOLD: u32 = 6_310_000;
+
+/// The bump amount is set slightly higher than the threshold to avoid
+/// continuous bumping on every transaction and save on fees.
+pub const BALANCE_BUMP_AMOUNT: u32 = 6_400_000;
 pub const ALLOWANCE_LIFETIME_THRESHOLD: u32 = 518400;
 pub const ALLOWANCE_BUMP_AMOUNT: u32 = 535000;
 pub const INSTANCE_LIFETIME_THRESHOLD: u32 = 518400;
@@ -21,6 +26,7 @@ pub const DISPUTE_LIFETIME_THRESHOLD: u32 = PERSISTENT_LIFETIME_THRESHOLD;
 pub const DISPUTE_BUMP_AMOUNT: u32 = PERSISTENT_BUMP_AMOUNT;
 pub const ESCROW_LIFETIME_THRESHOLD: u32 = 7_884_000;
 pub const ESCROW_BUMP_AMOUNT: u32 = 7_900_000;
+pub const WARNING_WINDOW: u32 = 1000;
 
 #[derive(Clone)]
 #[contracttype]
@@ -33,16 +39,16 @@ pub struct AllowanceValue { pub amount: i128, pub expiration_ledger: u32 }
 #[derive(Clone)]
 #[contracttype]
 pub enum DataKey {
-    Admin, Allowance(AllowanceDataKey), Balance(Address), Metadata, TotalSupply,
-    EscrowCount, Escrow(u32), RecurringCount, Recurring(u32),
-    SplitCount, Split(u32), DisputeCount, Dispute(u32),
-    EscrowDispute(u32), EscrowDisputeHistory(u32), Freeze(Address),
     Admin,
     Allowance(AllowanceDataKey),
     SpenderAllowances(Address),
     Balance(Address),
     Metadata,
     TotalSupply,
+    MaxSupply,
+    HolderSet,
+    SnapshotCount,
+    Snapshot(u32),
     EscrowCount,
     Escrow(u32),
     DepositorEscrows(Address),
@@ -54,12 +60,17 @@ pub enum DataKey {
     DisputeCount,
     Dispute(u32),
     EscrowDispute(u32),
+    EscrowDisputeHistory(u32),
     ResolverDisputes(Address),
     OpenDisputes,
     Freeze(Address),
-
-    // Global emergency pause flag.
+    FrozenAccounts,
+    OwnerAllowances(Address),
     Paused,
+    ClawbackCoSigner,
+    PendingAdmin,
+    ExpiryWarned(u32),
+    Nonce(Address),
 }
 
 pub fn read_persistent_record<T>(e: &Env, key: &DataKey, missing_message: &'static str) -> T
@@ -84,7 +95,6 @@ pub fn bump_instance(e: &Env) {
 pub fn read_counter(e: &Env, key: &DataKey) -> u32 { e.storage().instance().get(key).unwrap_or(0) }
 
 pub fn increment_counter(e: &Env, key: &DataKey) -> u32 {
-    // Keep instance storage alive whenever counters are mutated to prevent ID reset/collision.
     bump_instance(e);
     let next = read_counter(e, key) + 1;
     e.storage().instance().set(key, &next);

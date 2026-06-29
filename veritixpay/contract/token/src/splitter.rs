@@ -3,7 +3,6 @@
 //! Distribution is caller-authenticated by sender to avoid unauthorized payout triggers.
 
 use crate::balance::{receive_balance, spend_balance};
-use crate::escrow::EscrowRecord;
 use crate::storage_types::{
     increment_counter, read_persistent_record, write_persistent_record, DataKey,
     SPLIT_BUMP_AMOUNT, SPLIT_LIFETIME_THRESHOLD,
@@ -66,14 +65,13 @@ pub fn create_split(
         total_bps += r.share_bps;
     }
     if total_bps != 10000 {
-        panic!("total bps must equal 10000");
+        panic!("InvalidShares: recipient shares must sum to exactly 10000 bps");
     }
 
     // 2. Increment and get Split ID
     let count = increment_counter(e, &DataKey::SplitCount);
 
     // 3. Move funds from sender to contract
-    // Note: Assuming contract address is e.current_contract_address()
     spend_balance(e, sender.clone(), total_amount);
     receive_balance(e, e.current_contract_address(), total_amount);
 
@@ -123,6 +121,12 @@ pub fn distribute(e: &Env, caller: Address, split_id: u32) {
     let mut remaining_amount = record.total_amount;
     let len = record.recipients.len();
 
+    // 3. Mark distributed BEFORE the loop — intentional re-entrancy protection.
+    // Any re-entrant call to distribute sees distributed=true and panics immediately,
+    // preventing double-distribution even if a recipient contract calls back.
+    record.distributed = true;
+    write_persistent_record(e, &DataKey::Split(split_id), &record);
+
     // 2. Proportional Distribution
     for (i, recipient) in record.recipients.iter().enumerate() {
         let amount_to_send = if i == (len as usize - 1) {
@@ -145,14 +149,10 @@ pub fn distribute(e: &Env, caller: Address, split_id: u32) {
             .expect("split remaining underflow");
     }
 
-    // 3. Mark distributed
-    record.distributed = true;
-    write_persistent_record(e, &DataKey::Split(split_id), &record);
-
     // 4. Emit Observability Event
     e.events().publish(
         (
-            symbol_short!("split_distributed"),
+            symbol_short!("splt_dist"),
             split_id,
             sender_for_event,
         ),
@@ -191,13 +191,68 @@ pub fn cancel_split(e: &Env, caller: Address, split_id: u32) {
     write_persistent_record(e, &DataKey::Split(split_id), &record);
 
     e.events().publish(
-        (symbol_short!("split_cancelled"), split_id, caller),
+        (symbol_short!("splt_cxl"), split_id, caller),
         record.total_amount,
     );
 }
 
 pub fn get_split(e: &Env, split_id: u32) -> SplitRecord {
     read_persistent_record(e, &DataKey::Split(split_id), "split record not found")
+}
+
+pub fn replace_split_recipient(
+    e: &Env,
+    sender: Address,
+    split_id: u32,
+    old_recipient: Address,
+    new_recipient: Address,
+) {
+    sender.require_auth();
+    let mut record: SplitRecord = e
+        .storage()
+        .persistent()
+        .get(&DataKey::Split(split_id))
+        .expect("split not found");
+    e.storage().persistent().extend_ttl(
+        &DataKey::Split(split_id),
+        SPLIT_LIFETIME_THRESHOLD,
+        SPLIT_BUMP_AMOUNT,
+    );
+    if record.distributed {
+        panic!("already distributed");
+    }
+    if record.cancelled {
+        panic!("split cancelled");
+    }
+    if record.sender != sender {
+        panic!("unauthorized");
+    }
+    if old_recipient == new_recipient {
+        panic!("old and new recipient are the same");
+    }
+
+    let mut found = false;
+    for i in 0..record.recipients.len() {
+        let r = record.recipients.get(i).unwrap();
+        if r.address == old_recipient {
+            record.recipients.set(i, SplitRecipient {
+                address: new_recipient.clone(),
+                share_bps: r.share_bps,
+            });
+            found = true;
+        } else if r.address == new_recipient {
+            panic!("duplicate recipient address");
+        }
+    }
+    if !found {
+        panic!("old recipient not found in split");
+    }
+
+    write_persistent_record(e, &DataKey::Split(split_id), &record);
+    e.events().publish(
+        (symbol_short!("splt_rplc"), split_id, sender),
+        (old_recipient, new_recipient),
+    );
 }
 
 /// Distributes multiple splits in a single invocation.
@@ -209,7 +264,8 @@ pub fn bulk_distribute(e: &Env, caller: Address, split_ids: Vec<u32>) {
         panic!("BulkLimit: maximum 10 split IDs per batch");
     }
     // Validate caller is sender for all splits before touching any funds
-    for split_id in split_ids.iter() {
+    for i in 0..split_ids.len() {
+        let split_id = split_ids.get(i).unwrap();
         let record: SplitRecord = e
             .storage()
             .persistent()
@@ -220,21 +276,24 @@ pub fn bulk_distribute(e: &Env, caller: Address, split_ids: Vec<u32>) {
         }
     }
     // Execute
-    for split_id in split_ids.iter() {
+    for i in 0..split_ids.len() {
+        let split_id = split_ids.get(i).unwrap();
         distribute(e, caller.clone(), split_id);
     }
+}
+
 /// Creates a split and immediately locks each recipient's share in its own escrow.
 /// Returns a `Vec<u32>` of escrow IDs in recipient order.
-/// Single atomic call — funds move once from sender into per-recipient escrows.
 pub fn create_split_with_escrow(
-/// Creates a split tagged with a memo (max 64 bytes) for off-chain correlation.
-pub fn create_split_with_memo(
     e: &Env,
     sender: Address,
     recipients: Vec<SplitRecipient>,
     total_amount: i128,
     expiry_ledger: u32,
 ) -> Vec<u32> {
+    use crate::storage_types::{increment_counter, write_persistent_record};
+    use crate::escrow::EscrowRecord;
+
     require_positive_amount(total_amount);
     sender.require_auth();
     if recipients.is_empty() {
@@ -247,8 +306,9 @@ pub fn create_split_with_memo(
     let len = recipients.len();
     let mut remaining = total_amount;
 
-    for (i, recipient) in recipients.iter().enumerate() {
-        let share = if i == (len as usize - 1) {
+    for i in 0..len {
+        let recipient = recipients.get(i).unwrap();
+        let share = if i == len - 1 {
             remaining
         } else {
             total_amount
@@ -275,6 +335,14 @@ pub fn create_split_with_memo(
         escrow_ids.push_back(escrow_id);
     }
     escrow_ids
+}
+
+/// Creates a split tagged with a memo (max 64 bytes) for off-chain correlation.
+pub fn create_split_with_memo(
+    e: &Env,
+    sender: Address,
+    recipients: Vec<SplitRecipient>,
+    total_amount: i128,
     memo: Bytes,
 ) -> u32 {
     if memo.len() > 64 {
@@ -287,6 +355,7 @@ pub fn create_split_with_memo(
         .get(&DataKey::Split(id))
         .expect("split not found");
     record.memo = memo;
+    use crate::storage_types::write_persistent_record;
     write_persistent_record(e, &DataKey::Split(id), &record);
     id
 }

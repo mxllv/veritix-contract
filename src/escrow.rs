@@ -1,6 +1,29 @@
 use soroban_sdk::{contracttype, token, Address, Bytes, Env, Vec};
 use crate::storage_types::DataKey;
 
+
+use crate::storage_types::MAX_ESCROW_AMOUNT;
+
+pub fn create_escrow(
+    e: Env,
+    depositor: Address,
+    beneficiary: Address,
+    token: Address,
+    amount: i128,
+    expiry_ledger: u32,
+    memo: Bytes,
+) -> u32 {
+    // 1. Existing baseline validation checks
+    // require_positive_amount(amount);
+
+    // 2. Supply Caps Rule: Enforce ceiling boundary to protect total liquidity pools
+    if amount > MAX_ESCROW_AMOUNT {
+        panic!("AmountTooLarge: use multi-party escrow for large amounts");
+    }
+
+    // Proceed with contract state allocation and structural storage...
+}
+
 #[contracttype]
 #[derive(Clone)]
 pub struct EscrowRecord {
@@ -14,7 +37,13 @@ pub struct EscrowRecord {
     pub released: bool,         // true only when fully released
     pub refunded: bool,
     pub memo: Bytes,            // #175: arbitrary tag — max 64 bytes
+    pub liened_by: Option<Address>,
+    pub lien_amount: i128,
+    pub created_at_ledger: u32,
 }
+
+// Anti-spam configuration threshold (5 minutes cooldown window)
+const ESCROW_COOLDOWN_SECONDS: u64 = 300;
 
 // ── Storage helpers ──────────────────────────────────────────────────────────
 
@@ -31,7 +60,7 @@ fn append_escrow_id(e: &Env, key: DataKey, id: u32) {
     e.storage().persistent().set(&key, &list);
 }
 
-fn load_record(e: &Env, escrow_id: u32) -> EscrowRecord {
+pub fn load_record(e: &Env, escrow_id: u32) -> EscrowRecord {
     e.storage()
         .persistent()
         .get(&DataKey::Escrow(escrow_id))
@@ -53,7 +82,9 @@ fn get_admin(e: &Env) -> Address {
 
 // ── Public functions ─────────────────────────────────────────────────────────
 
-/// Create an escrow. #175 adds `memo: Bytes` — max 64 bytes.
+/// Create an escrow. 
+/// #175 enforces `memo: Bytes` — max 64 bytes.
+/// #269 enforces dynamic rate limiting based on block timestamp history.
 pub fn create_escrow(
     e: Env,
     depositor: Address,
@@ -65,12 +96,22 @@ pub fn create_escrow(
 ) -> u32 {
     depositor.require_auth();
 
+    // #269: Strict Anti-Spam Rate Limiting Guard Check
+    let rate_limit_key = DataKey::LastEscrowTime(depositor.clone());
+    let last_creation_time: u64 = e.storage().persistent().get(&rate_limit_key).unwrap_or(0);
+    let current_time = e.ledger().timestamp();
+
+    if last_creation_time > 0 && (current_time - last_creation_time) < ESCROW_COOLDOWN_SECONDS {
+        panic!("RateLimitExceeded: please wait before creating another escrow");
+    }
+
     // #175: enforce memo length limit with the exact panic string required
     if memo.len() > 64 {
         panic!("MemoTooLong: memo cannot exceed 64 bytes");
     }
 
     assert!(amount > 0, "amount must be greater than zero");
+    // #433: expiry must be strictly in the future
     assert!(
         expiry_ledger > e.ledger().sequence(),
         "expiry_ledger must be in the future"
@@ -97,18 +138,18 @@ pub fn create_escrow(
         released: false,
         refunded: false,
         memo,               // #175
+        liened_by: None,
+        lien_amount: 0,
+        created_at_ledger: e.ledger().sequence(),
     };
 
     save_record(&e, &record);
-    append_escrow_id(&e, DataKey::DepositorEscrows(depositor), id);
+    append_escrow_id(&e, DataKey::DepositorEscrows(depositor.clone()), id);
     append_escrow_id(&e, DataKey::BeneficiaryEscrows(beneficiary), id);
 
-    e.storage()
-        .persistent()
-        .set(&DataKey::EscrowCount, &(id + 1));
-e.storage()
-        .persistent()
-        .set(&DataKey::EscrowCount, &(id + 1));
+    // Update state tracking counters and rate limit timestamps cleanly
+    e.storage().persistent().set(&DataKey::EscrowCount, &(id + 1));
+    e.storage().persistent().set(&rate_limit_key, &current_time);
 
     // #181: emit escrow_created event with memo for indexers
     e.events().publish(
@@ -145,10 +186,29 @@ pub fn release_escrow(e: Env, caller: Address, escrow_id: u32) {
 
     record.released_amount = record.amount;
     record.released = true;
+    
+    let token_client = token::Client::new(&e, &record.token);
+    
+    let lien_transfer = if record.liened_by.is_some() && record.lien_amount > 0 {
+        let l_amount = record.lien_amount;
+        let l_by = record.liened_by.clone().unwrap();
+        // Clear the lien
+        record.liened_by = None;
+        record.lien_amount = 0;
+        
+        let to_lien = core::cmp::min(l_amount, remaining);
+        token_client.transfer(&e.current_contract_address(), &l_by, &to_lien);
+        to_lien
+    } else {
+        0
+    };
+    
     save_record(&e, &record);
 
-    let token_client = token::Client::new(&e, &record.token);
-    token_client.transfer(&e.current_contract_address(), &record.beneficiary, &remaining);
+    let to_beneficiary = remaining - lien_transfer;
+    if to_beneficiary > 0 {
+        token_client.transfer(&e.current_contract_address(), &record.beneficiary, &to_beneficiary);
+    }
 
     // #181: emit escrow_released event with memo for indexers
     e.events().publish(
@@ -162,8 +222,6 @@ pub fn release_escrow(e: Env, caller: Address, escrow_id: u32) {
 }
 
 /// #174: Partial release — caller must be the beneficiary.
-/// Releases `amount` of still-locked funds; marks fully released only when
-/// nothing remains.
 pub fn release_partial_escrow(e: Env, caller: Address, escrow_id: u32, amount: i128) {
     caller.require_auth();
 
@@ -219,7 +277,7 @@ pub fn refund_escrow(e: Env, caller: Address, escrow_id: u32) {
     record.refunded = true;
     save_record(&e, &record);
 
-   let token_client = token::Client::new(&e, &record.token);
+    let token_client = token::Client::new(&e, &record.token);
     token_client.transfer(
         &e.current_contract_address(),
         &record.depositor,
@@ -237,6 +295,34 @@ pub fn refund_escrow(e: Env, caller: Address, escrow_id: u32) {
     );
 }
 
+pub fn place_lien(e: Env, creditor: Address, escrow_id: u32, lien_amount: i128) {
+    creditor.require_auth();
+    let mut record = load_record(&e, escrow_id);
+    
+    assert!(!record.released && !record.refunded, "escrow already settled");
+    assert!(record.liened_by.is_none(), "only one lien at a time");
+    assert!(lien_amount > 0, "lien amount must be positive");
+    
+    record.liened_by = Some(creditor);
+    record.lien_amount = lien_amount;
+    save_record(&e, &record);
+}
+
+pub fn clear_lien(e: Env, caller: Address, escrow_id: u32) {
+    caller.require_auth();
+    let mut record = load_record(&e, escrow_id);
+    
+    assert!(!record.released && !record.refunded, "escrow already settled");
+    assert!(record.liened_by.is_some(), "no active lien");
+    
+    let lien_owner = record.liened_by.clone().unwrap();
+    assert!(caller == record.depositor || caller == lien_owner, "not authorized to clear lien");
+    
+    record.liened_by = None;
+    record.lien_amount = 0;
+    save_record(&e, &record);
+}
+
 // ── Query helpers ─────────────────────────────────────────────────────────────
 
 pub fn get_escrows_by_depositor(e: Env, depositor: Address) -> Vec<u32> {
@@ -245,4 +331,61 @@ pub fn get_escrows_by_depositor(e: Env, depositor: Address) -> Vec<u32> {
 
 pub fn get_escrows_by_beneficiary(e: Env, beneficiary: Address) -> Vec<u32> {
     read_escrow_ids(&e, DataKey::BeneficiaryEscrows(beneficiary))
+}
+
+pub fn get_escrowed_total(e: &Env) -> i128 {
+    let escrow_count: u32 = e
+        .storage()
+        .persistent()
+        .get(&DataKey::EscrowCount)
+        .unwrap_or(0);
+
+    let mut total = 0_i128;
+    for escrow_id in 0..escrow_count {
+        let record: EscrowRecord = e
+            .storage()
+            .persistent()
+            .get(&DataKey::Escrow(escrow_id))
+            .expect("escrow not found");
+
+        if !record.released && !record.refunded {
+            total += record.amount - record.released_amount;
+        }
+    }
+
+    total
+}
+
+pub fn get_escrows_batch(e: Env, escrow_ids: Vec<u32>) -> Vec<Option<EscrowRecord>> {
+    assert!(escrow_ids.len() <= 50, "batch size cannot exceed 50");
+    let mut result = Vec::new(&e);
+    for id in escrow_ids {
+        let record = e.storage().persistent().get::<_, EscrowRecord>(&DataKey::Escrow(id));
+        result.push_back(record);
+    }
+    result
+}
+
+pub fn get_escrow_age(e: Env, escrow_id: u32) -> u32 {
+    let record = load_record(&e, escrow_id);
+    if record.released || record.refunded {
+        0
+    } else {
+        e.ledger().sequence().saturating_sub(record.created_at_ledger)
+    }
+}
+
+pub fn topup_escrow(e: Env, depositor: Address, escrow_id: u32, amount: i128) {
+    depositor.require_auth();
+    assert!(amount > 0, "amount must be positive");
+    if e.storage().persistent().has(&DataKey::EscrowDispute(escrow_id)) {
+        panic!("DisputeOpen: cannot top up an escrow under active dispute");
+    }
+    let mut record = load_record(&e, escrow_id);
+    assert!(!record.released && !record.refunded, "escrow already settled");
+    assert!(record.depositor == depositor, "not the depositor");
+    let token_client = token::Client::new(&e, &record.token);
+    token_client.transfer(&depositor, &e.current_contract_address(), &amount);
+    record.amount += amount;
+    save_record(&e, &record);
 }
