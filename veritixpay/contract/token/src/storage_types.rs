@@ -97,6 +97,15 @@ pub fn bump_instance(e: &Env) {
 
 pub fn read_counter(e: &Env, key: &DataKey) -> u32 { e.storage().instance().get(key).unwrap_or(0) }
 
+#[derive(Clone)]
+#[contracttype]
+pub struct EscrowStats {
+    pub total_count: u32,
+    pub active_count: u32,
+    pub settled_count: u32,
+    pub total_value_locked: i128,
+}
+
 pub fn increment_counter(e: &Env, key: &DataKey) -> u32 {
     bump_instance(e);
     let next = read_counter(e, key) + 1;

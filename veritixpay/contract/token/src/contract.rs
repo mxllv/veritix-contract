@@ -10,11 +10,8 @@ use crate::dispute::{
 use crate::escrow::{
 use crate::escrow::{
     admin_settle_escrow as escrow_admin_settle, create_escrow as escrow_create,
-    escrow_between as escrow_between_fn, get_escrow as escrow_get, refund_escrow as escrow_refund,
+    escrow_stats as escrow_get_stats, get_escrow as escrow_get, refund_escrow as escrow_refund,
     release_escrow as escrow_release, EscrowRecord,
-};
-    get_escrow as escrow_get, refund_escrow as escrow_refund, release_escrow as escrow_release,
-    EscrowRecord,
 };
 use crate::freeze::{freeze_account, get_frozen_accounts, is_frozen as read_frozen_status, unfreeze_account};
 use crate::metadata::{read_decimal, read_name, read_symbol, update_metadata_fields, validate_metadata, write_metadata, TokenMetadata};
@@ -350,6 +347,10 @@ impl VeritixToken {
     pub fn escrow_count(e: Env) -> u32 {
         crate::storage_types::bump_instance(&e);
         crate::storage_types::read_counter(&e, &crate::storage_types::DataKey::EscrowCount)
+    }
+    pub fn escrow_stats(e: Env) -> crate::storage_types::EscrowStats {
+        crate::storage_types::bump_instance(&e);
+        escrow_get_stats(&e)
     }
 
     // --- Disputes ---
