@@ -3,7 +3,7 @@ use soroban_sdk::{testutils::{Address as _, Events as _}, Address, Env, Symbol, 
 use crate::balance::read_balance;
 use crate::balance::read_total_supply;
 use crate::contract::VeritixToken;
-use crate::splitter::{cancel_split, create_split, distribute, get_split, SplitRecipient};
+use crate::splitter::{cancel_split, create_split, distribute, get_split, splitter_stats, SplitRecipient};
 use crate::storage_types::{read_counter, DataKey};
 
 fn setup_env() -> Env {
@@ -707,5 +707,137 @@ fn test_create_split_shares_sum_to_10001_panics() {
         crate::balance::receive_balance(&e, sender.clone(), 1000);
         let recipients = make_recipients(&e, &[(r1.clone(), 5000), (r2.clone(), 5001)]);
         create_split(&e, sender.clone(), recipients, 1000);
+    });
+}
+
+// --- Issue #448: SplitterStats tests ---
+
+// Verifies that splitter_stats returns all zeros before any splits are created.
+#[test]
+fn test_splitter_stats_initial_zeros() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+
+    e.as_contract(&contract_id, || {
+        let stats = splitter_stats(&e);
+        assert_eq!(stats.total_splits, 0);
+        assert_eq!(stats.distributed_count, 0);
+        assert_eq!(stats.cancelled_count, 0);
+        assert_eq!(stats.total_distributed_value, 0);
+    });
+}
+
+// Verifies that total_splits increments on create but distributed_count and
+// cancelled_count only increment on the respective terminal actions.
+#[test]
+fn test_splitter_stats_total_splits_increments_on_create() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let sender = Address::generate(&e);
+    let r1 = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, sender.clone(), 2000);
+        let recipients = make_recipients(&e, &[(r1.clone(), 10000)]);
+        create_split(&e, sender.clone(), recipients.clone(), 1000);
+        let stats = splitter_stats(&e);
+        assert_eq!(stats.total_splits, 1);
+        assert_eq!(stats.distributed_count, 0);
+        assert_eq!(stats.cancelled_count, 0);
+
+        create_split(&e, sender.clone(), recipients, 1000);
+        let stats = splitter_stats(&e);
+        assert_eq!(stats.total_splits, 2);
+    });
+}
+
+// Verifies that distributed_count and total_distributed_value increment after distribute().
+#[test]
+fn test_splitter_stats_distributed_count_increments() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let sender = Address::generate(&e);
+    let r1 = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, sender.clone(), 1000);
+        let recipients = make_recipients(&e, &[(r1.clone(), 10000)]);
+        let split_id = create_split(&e, sender.clone(), recipients, 1000);
+        distribute(&e, sender.clone(), split_id);
+
+        let stats = splitter_stats(&e);
+        assert_eq!(stats.distributed_count, 1);
+        assert_eq!(stats.total_distributed_value, 1000);
+        assert_eq!(stats.cancelled_count, 0);
+    });
+}
+
+// Verifies that cancelled_count increments after cancel_split() and
+// total_distributed_value is unaffected.
+#[test]
+fn test_splitter_stats_cancelled_count_increments() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let sender = Address::generate(&e);
+    let r1 = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, sender.clone(), 1000);
+        let recipients = make_recipients(&e, &[(r1.clone(), 10000)]);
+        let split_id = create_split(&e, sender.clone(), recipients, 1000);
+        cancel_split(&e, sender.clone(), split_id);
+
+        let stats = splitter_stats(&e);
+        assert_eq!(stats.cancelled_count, 1);
+        assert_eq!(stats.distributed_count, 0);
+        assert_eq!(stats.total_distributed_value, 0);
+    });
+}
+
+// Verifies total_distributed_value accumulates across multiple distributions.
+#[test]
+fn test_splitter_stats_total_distributed_value_accumulates() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let sender = Address::generate(&e);
+    let r1 = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, sender.clone(), 3000);
+        let recipients = make_recipients(&e, &[(r1.clone(), 10000)]);
+
+        let id1 = create_split(&e, sender.clone(), recipients.clone(), 1000);
+        let id2 = create_split(&e, sender.clone(), recipients.clone(), 2000);
+        distribute(&e, sender.clone(), id1);
+        distribute(&e, sender.clone(), id2);
+
+        let stats = splitter_stats(&e);
+        assert_eq!(stats.distributed_count, 2);
+        assert_eq!(stats.total_distributed_value, 3000);
+    });
+}
+
+// Verifies mixed lifecycle: one distributed + one cancelled yields correct stats.
+#[test]
+fn test_splitter_stats_mixed_lifecycle() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let sender = Address::generate(&e);
+    let r1 = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, sender.clone(), 2000);
+        let recipients = make_recipients(&e, &[(r1.clone(), 10000)]);
+
+        let id1 = create_split(&e, sender.clone(), recipients.clone(), 1000);
+        let id2 = create_split(&e, sender.clone(), recipients, 1000);
+        distribute(&e, sender.clone(), id1);
+        cancel_split(&e, sender.clone(), id2);
+
+        let stats = splitter_stats(&e);
+        assert_eq!(stats.total_splits, 2);
+        assert_eq!(stats.distributed_count, 1);
+        assert_eq!(stats.cancelled_count, 1);
+        assert_eq!(stats.total_distributed_value, 1000);
     });
 }

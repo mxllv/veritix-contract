@@ -71,6 +71,9 @@ pub enum DataKey {
     PendingAdmin,
     ExpiryWarned(u32),
     Nonce(Address),
+    DistributedCount,
+    CancelledCount,
+    TotalDistributedValue,
 }
 
 pub fn read_persistent_record<T>(e: &Env, key: &DataKey, missing_message: &'static str) -> T

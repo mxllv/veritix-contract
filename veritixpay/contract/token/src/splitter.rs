@@ -4,7 +4,7 @@
 
 use crate::balance::{receive_balance, spend_balance};
 use crate::storage_types::{
-    increment_counter, read_persistent_record, write_persistent_record, DataKey,
+    increment_counter, read_counter, read_persistent_record, write_persistent_record, DataKey,
     SPLIT_BUMP_AMOUNT, SPLIT_LIFETIME_THRESHOLD,
 };
 use crate::validation::require_positive_amount;
@@ -27,6 +27,28 @@ pub struct SplitRecord {
     pub distributed: bool,
     pub cancelled: bool,
     pub memo: Bytes,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SplitterStats {
+    pub total_splits: u32,
+    pub distributed_count: u32,
+    pub cancelled_count: u32,
+    pub total_distributed_value: i128,
+}
+
+pub fn splitter_stats(e: &Env) -> SplitterStats {
+    SplitterStats {
+        total_splits: read_counter(e, &DataKey::SplitCount),
+        distributed_count: read_counter(e, &DataKey::DistributedCount),
+        cancelled_count: read_counter(e, &DataKey::CancelledCount),
+        total_distributed_value: e
+            .storage()
+            .instance()
+            .get(&DataKey::TotalDistributedValue)
+            .unwrap_or(0i128),
+    }
 }
 
 pub fn create_split(
@@ -158,6 +180,11 @@ pub fn distribute(e: &Env, caller: Address, split_id: u32) {
         ),
         amount_for_event,
     );
+
+    // 5. Update aggregate stats counters
+    increment_counter(e, &DataKey::DistributedCount);
+    let prev: i128 = e.storage().instance().get(&DataKey::TotalDistributedValue).unwrap_or(0);
+    e.storage().instance().set(&DataKey::TotalDistributedValue, &(prev + amount_for_event));
 }
 
 pub fn cancel_split(e: &Env, caller: Address, split_id: u32) {
@@ -194,6 +221,8 @@ pub fn cancel_split(e: &Env, caller: Address, split_id: u32) {
         (symbol_short!("splt_cxl"), split_id, caller),
         record.total_amount,
     );
+
+    increment_counter(e, &DataKey::CancelledCount);
 }
 
 pub fn get_split(e: &Env, split_id: u32) -> SplitRecord {
