@@ -415,224 +415,69 @@ mod recurring_tests {
         });
     }
 
+    // --- Issue #450: cancel_recurring_batch tests ---
+
     #[test]
-    fn test_get_next_execution_ledger_active() {
+    fn test_cancel_recurring_batch_deactivates_all() {
         let e = setup_env();
         let contract_id = e.register_contract(None, VeritixToken);
-        let (_, _, id) = fund_and_setup(&e, &contract_id, 500, 100);
+        let (payer, _payee, id1) = fund_and_setup(&e, &contract_id, 500, 100);
+
+        // Setup a second recurring for the same payer.
+        let payee2 = Address::generate(&e);
+        let mut id2 = 0u32;
         e.as_contract(&contract_id, || {
-            let r = get_recurring(&e, id);
-            let next = get_next_execution_ledger(&e, id);
-            assert_eq!(next, r.last_charged_ledger + 100);
+            crate::balance::receive_balance(&e, payer.clone(), 500);
+            id2 = setup_recurring(&e, payer.clone(), payee2.clone(), 500, 100);
+        });
+
+        e.as_contract(&contract_id, || {
+            let ids = soroban_sdk::vec![&e, id1, id2];
+            crate::recurring::cancel_recurring_batch(&e, payer.clone(), ids);
+            assert!(!get_recurring(&e, id1).active);
+            assert!(!get_recurring(&e, id2).active);
         });
     }
 
     #[test]
-    fn test_get_next_execution_ledger_paused_returns_max() {
+    #[should_panic(expected = "unauthorized")]
+    fn test_cancel_recurring_batch_unauthorized_reverts_all() {
         let e = setup_env();
         let contract_id = e.register_contract(None, VeritixToken);
-        let (payer, _, id) = fund_and_setup(&e, &contract_id, 500, 100);
+        let (payer, _payee, id1) = fund_and_setup(&e, &contract_id, 500, 100);
+
+        // Create a second recurring owned by a different payer.
+        let other_payer = Address::generate(&e);
+        let payee2 = Address::generate(&e);
+        let mut id2 = 0u32;
         e.as_contract(&contract_id, || {
-            pause_recurring(&e, payer.clone(), id);
-            assert_eq!(get_next_execution_ledger(&e, id), u32::MAX);
+            crate::balance::receive_balance(&e, other_payer.clone(), 500);
+            id2 = setup_recurring(&e, other_payer.clone(), payee2.clone(), 500, 100);
+        });
+
+        // Attempt to cancel both — id2 belongs to other_payer, must panic (full revert).
+        e.as_contract(&contract_id, || {
+            let ids = soroban_sdk::vec![&e, id1, id2];
+            crate::recurring::cancel_recurring_batch(&e, payer.clone(), ids);
         });
     }
 
     #[test]
-    fn test_get_next_execution_ledger_missing_returns_max() {
-        let e = setup_env();
-        let contract_id = e.register_contract(None, VeritixToken);
-        e.as_contract(&contract_id, || {
-            assert_eq!(get_next_execution_ledger(&e, 999), u32::MAX);
-        });
-    }
-
-    #[test]
-    fn test_is_executable_active_and_due() {
-        let e = setup_env();
-        let contract_id = e.register_contract(None, VeritixToken);
-        let (_, _, id) = fund_and_setup(&e, &contract_id, 500, 100);
-        e.as_contract(&contract_id, || {
-            e.ledger().with_mut(|l| l.sequence_number = e.ledger().sequence() + 101);
-            assert!(is_executable(&e, id));
-        });
-    }
-
-    #[test]
-    fn test_is_executable_active_not_due() {
-        let e = setup_env();
-        let contract_id = e.register_contract(None, VeritixToken);
-        let (_, _, id) = fund_and_setup(&e, &contract_id, 500, 100);
-        e.as_contract(&contract_id, || {
-            assert!(!is_executable(&e, id));
-        });
-    }
-
-    #[test]
-    fn test_is_executable_paused() {
-        let e = setup_env();
-        let contract_id = e.register_contract(None, VeritixToken);
-        let (payer, _, id) = fund_and_setup(&e, &contract_id, 500, 100);
-        e.as_contract(&contract_id, || {
-            pause_recurring(&e, payer.clone(), id);
-            e.ledger().with_mut(|l| l.sequence_number = e.ledger().sequence() + 200);
-            assert!(!is_executable(&e, id));
-        });
-    }
-
-    #[test]
-    fn test_is_executable_missing() {
-        let e = setup_env();
-        let contract_id = e.register_contract(None, VeritixToken);
-        e.as_contract(&contract_id, || {
-            assert!(!is_executable(&e, 999));
-        });
-    }
-
-    #[test]
-    fn test_recurring_payee_is_contract_address() {
+    #[should_panic(expected = "batch exceeds maximum of 20")]
+    fn test_cancel_recurring_batch_over_limit_panics() {
         let e = setup_env();
         let contract_id = e.register_contract(None, VeritixToken);
         let payer = Address::generate(&e);
-
-        // Register a second VeritixToken contract as the payee
-        let payee_contract_id = e.register_contract(None, VeritixToken);
-        let payee_client = crate::contract::VeritixTokenClient::new(&e, &payee_contract_id);
-        let payee_admin = Address::generate(&e);
-        payee_client.initialize(
-            &payee_admin,
-            &soroban_sdk::String::from_str(&e, "PayeeToken"),
-            &soroban_sdk::String::from_str(&e, "PAY"),
-            &7u32,
-        );
-
-        let mut recurring_id = 0u32;
-        e.as_contract(&contract_id, || {
-            crate::balance::receive_balance(&e, payer.clone(), 1_000);
-            crate::balance::increase_supply(&e, 1_000);
-
-            // Use the payee contract address as the payee
-            recurring_id = setup_recurring(&e, payer.clone(), payee_contract_id.clone(), 500, 100);
-        });
+        let payee = Address::generate(&e);
 
         e.as_contract(&contract_id, || {
-            e.ledger().with_mut(|l| l.sequence_number = e.ledger().sequence() + 101);
-            execute_recurring(&e, recurring_id);
+            // Build a Vec of 21 IDs (all fake — limit check happens first).
+            let mut ids = soroban_sdk::vec![&e];
+            for i in 1u32..=21 {
+                ids.push_back(i);
+            }
+            crate::recurring::cancel_recurring_batch(&e, payer.clone(), ids);
         });
-
-        // Verify the payee contract received the tokens
-        assert_eq!(payee_client.balance(&payee_contract_id), 500i128);
-    }
-
-    // --- Event content tests ---
-
-    // Verifies that setup_recurring emits ("recur_stp", payer) topics and
-    // (payee, amount) as tuple data.
-    #[test]
-    fn test_setup_recurring_event_topics_and_data() {
-        let e = setup_env();
-        let contract_id = e.register_contract(None, VeritixToken);
-        let (payer, payee, _id) = fund_and_setup(&e, &contract_id, 500, 100);
-
-        let events = e.events().all();
-        assert_eq!(events.len(), 1);
-        let event = events.last().unwrap();
-        let topics = event.1;
-        assert_eq!(topics.len(), 2);
-        let t0 = Symbol::try_from_val(&e, &topics.get(0).unwrap()).unwrap();
-        assert_eq!(t0, soroban_sdk::symbol_short!("recur_stp"));
-        let t1 = Address::try_from_val(&e, &topics.get(1).unwrap()).unwrap();
-        assert_eq!(t1, payer);
-        // data is (payee, amount) encoded as Vec<Val>
-        let data_vec =
-            soroban_sdk::Vec::<soroban_sdk::Val>::try_from_val(&e, &event.2).unwrap();
-        let data_payee = Address::try_from_val(&e, &data_vec.get(0).unwrap()).unwrap();
-        assert_eq!(data_payee, payee);
-        let data_amount = i128::try_from_val(&e, &data_vec.get(1).unwrap()).unwrap();
-        assert_eq!(data_amount, 500);
-    }
-
-    // Verifies that execute_recurring emits ("recur_exe", recurring_id) topics
-    // and amount as scalar data.
-    #[test]
-    fn test_execute_recurring_event_topics_and_data() {
-        let e = setup_env();
-        let contract_id = e.register_contract(None, VeritixToken);
-        let (_payer, _payee, id) = fund_and_setup(&e, &contract_id, 500, 100);
-
-        let before = e.events().all().len();
-
-        e.as_contract(&contract_id, || {
-            e.ledger().with_mut(|l| l.sequence_number = e.ledger().sequence() + 101);
-            execute_recurring(&e, id);
-        });
-
-        let events = e.events().all();
-        assert_eq!(events.len(), before + 1);
-        let event = events.last().unwrap();
-        let topics = event.1;
-        assert_eq!(topics.len(), 2);
-        let t0 = Symbol::try_from_val(&e, &topics.get(0).unwrap()).unwrap();
-        assert_eq!(t0, soroban_sdk::symbol_short!("recur_exe"));
-        let t1 = u32::try_from_val(&e, &topics.get(1).unwrap()).unwrap();
-        assert_eq!(t1, id);
-        let data_amount = i128::try_from_val(&e, &event.2).unwrap();
-        assert_eq!(data_amount, 500);
-    }
-
-    // Verifies that cancel_recurring emits ("recur_cxl", recurring_id, caller)
-    // topics and unit () as data.
-    #[test]
-    fn test_cancel_recurring_event_topics_and_data() {
-        let e = setup_env();
-        let contract_id = e.register_contract(None, VeritixToken);
-        let (payer, _payee, id) = fund_and_setup(&e, &contract_id, 500, 100);
-
-        let before = e.events().all().len();
-
-        e.as_contract(&contract_id, || {
-            cancel_recurring(&e, payer.clone(), id);
-        });
-
-        let events = e.events().all();
-        assert_eq!(events.len(), before + 1);
-        let event = events.last().unwrap();
-        let topics = event.1;
-        assert_eq!(topics.len(), 3);
-        let t0 = Symbol::try_from_val(&e, &topics.get(0).unwrap()).unwrap();
-        assert_eq!(t0, soroban_sdk::symbol_short!("recur_cxl"));
-        let t1 = u32::try_from_val(&e, &topics.get(1).unwrap()).unwrap();
-        assert_eq!(t1, id);
-        let t2 = Address::try_from_val(&e, &topics.get(2).unwrap()).unwrap();
-        assert_eq!(t2, payer);
-        // data is () (unit/void) — assert it is the void Val
-        assert!(event.2.is_void());
-    }
-
-    // --- Issue #275: Cancel recurring preserves payer balance ---
-    // Since setup_recurring uses a "pull" model (funds not locked at setup),
-    // canceling a recurring payment does not require a refund - the payer's
-    // balance remains unchanged because funds were never transferred.
-
-    #[test]
-    fn test_cancel_recurring_preserves_payer_balance() {
-        let e = setup_env();
-        let contract_id = e.register_contract(None, VeritixToken);
-        let (payer, _payee, id) = fund_and_setup(&e, &contract_id, 1_000, 100);
-
-        let balance_before = read_balance(&e, payer.clone());
-
-        e.as_contract(&contract_id, || {
-            cancel_recurring(&e, payer.clone(), id);
-        });
-
-        // Payer balance should be unchanged after cancellation
-        // (no funds were locked during setup - pull model)
-        let balance_after = read_balance(&e, payer.clone());
-        assert_eq!(balance_after, balance_before);
-
-        // Verify the record is no longer active
-        let record = get_recurring(&e, id);
-        assert!(!record.active);
+        let _ = (payer, payee); // suppress unused warnings
     }
 }

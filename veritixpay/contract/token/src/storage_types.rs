@@ -51,6 +51,7 @@ pub enum DataKey {
     Snapshot(u32),
     EscrowCount,
     Escrow(u32),
+    DepositorEscrows(Address),
     RecurringCount,
     Recurring(u32),
     PayerRecurrings(Address),

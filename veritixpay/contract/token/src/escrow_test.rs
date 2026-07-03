@@ -964,3 +964,55 @@ fn test_refund_escrow_with_open_dispute_panics() {
         refund_escrow(&e, depositor.clone(), escrow_id);
     });
 }
+
+// --- Issue #449: escrow_between tests ---
+
+#[test]
+fn test_escrow_between_returns_active_escrow_id() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let depositor = Address::generate(&e);
+    let beneficiary = Address::generate(&e);
+    let amount = 500i128;
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, depositor.clone(), amount);
+        let id = create_escrow(&e, depositor.clone(), beneficiary.clone(), amount, 1000);
+        let found = crate::escrow::escrow_between(&e, depositor.clone(), beneficiary.clone());
+        assert_eq!(found, Some(id));
+    });
+}
+
+#[test]
+fn test_escrow_between_settled_escrow_not_returned() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let depositor = Address::generate(&e);
+    let beneficiary = Address::generate(&e);
+    let amount = 500i128;
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, depositor.clone(), amount);
+        let id = create_escrow(&e, depositor.clone(), beneficiary.clone(), amount, 1000);
+        release_escrow(&e, beneficiary.clone(), id);
+        let found = crate::escrow::escrow_between(&e, depositor.clone(), beneficiary.clone());
+        assert_eq!(found, None);
+    });
+}
+
+#[test]
+fn test_escrow_between_no_match_returns_none() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let depositor = Address::generate(&e);
+    let beneficiary = Address::generate(&e);
+    let other = Address::generate(&e);
+    let amount = 500i128;
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, depositor.clone(), amount);
+        create_escrow(&e, depositor.clone(), beneficiary.clone(), amount, 1000);
+        let found = crate::escrow::escrow_between(&e, depositor.clone(), other.clone());
+        assert_eq!(found, None);
+    });
+}

@@ -6,10 +6,11 @@ use crate::admin::check_admin;
 use crate::balance::{receive_balance, spend_balance};
 use crate::storage_types::{
     increment_counter, read_persistent_record, write_persistent_record, DataKey,
-    ESCROW_BUMP_AMOUNT, ESCROW_LIFETIME_THRESHOLD, WARNING_WINDOW,
+    ESCROW_BUMP_AMOUNT, ESCROW_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT,
+    PERSISTENT_LIFETIME_THRESHOLD,
 };
 use crate::validation::{require_current_or_future_ledger, require_positive_amount};
-use soroban_sdk::{contracttype, symbol_short, Address, Env};
+use soroban_sdk::{contracttype, symbol_short, vec, Address, Env, Vec};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -69,6 +70,21 @@ pub fn create_escrow(
             beneficiary.clone(),
         ),
         amount,
+    );
+
+    // Maintain depositor index so escrow_between can scan by depositor
+    let index_key = DataKey::DepositorEscrows(depositor.clone());
+    let mut ids: Vec<u32> = e
+        .storage()
+        .persistent()
+        .get(&index_key)
+        .unwrap_or_else(|| vec![e]);
+    ids.push_back(count);
+    e.storage().persistent().set(&index_key, &ids);
+    e.storage().persistent().extend_ttl(
+        &index_key,
+        PERSISTENT_LIFETIME_THRESHOLD,
+        PERSISTENT_BUMP_AMOUNT,
     );
 
     count
@@ -244,4 +260,22 @@ pub fn admin_settle_escrow(e: &Env, admin: Address, escrow_id: u32, recipient: A
         (symbol_short!("adm_sttl"), escrow_id, admin),
         (recipient, escrow.amount),
     );
+}
+
+/// Returns the first active escrow ID between depositor and beneficiary, or None.
+pub fn escrow_between(e: &Env, depositor: Address, beneficiary: Address) -> Option<u32> {
+    let key = DataKey::DepositorEscrows(depositor);
+    let ids: Vec<u32> = e
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| vec![e]);
+    for id in ids.iter() {
+        if let Ok(record) = try_get_escrow(e, id) {
+            if record.beneficiary == beneficiary && !record.released && !record.refunded {
+                return Some(id);
+            }
+        }
+    }
+    None
 }
