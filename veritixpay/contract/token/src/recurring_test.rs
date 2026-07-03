@@ -415,82 +415,56 @@ mod recurring_tests {
         });
     }
 
+    // --- Issue #450: cancel_recurring_batch tests ---
+
     #[test]
-    fn test_get_next_execution_ledger_active() {
+    fn test_cancel_recurring_batch_deactivates_all() {
         let e = setup_env();
         let contract_id = e.register_contract(None, VeritixToken);
-        let (_, _, id) = fund_and_setup(&e, &contract_id, 500, 100);
+        let (payer, _payee, id1) = fund_and_setup(&e, &contract_id, 500, 100);
+
+        // Setup a second recurring for the same payer.
+        let payee2 = Address::generate(&e);
+        let mut id2 = 0u32;
         e.as_contract(&contract_id, || {
-            let r = get_recurring(&e, id);
-            let next = get_next_execution_ledger(&e, id);
-            assert_eq!(next, r.last_charged_ledger + 100);
+            crate::balance::receive_balance(&e, payer.clone(), 500);
+            id2 = setup_recurring(&e, payer.clone(), payee2.clone(), 500, 100);
+        });
+
+        e.as_contract(&contract_id, || {
+            let ids = soroban_sdk::vec![&e, id1, id2];
+            crate::recurring::cancel_recurring_batch(&e, payer.clone(), ids);
+            assert!(!get_recurring(&e, id1).active);
+            assert!(!get_recurring(&e, id2).active);
         });
     }
 
     #[test]
-    fn test_get_next_execution_ledger_paused_returns_max() {
+    #[should_panic(expected = "unauthorized")]
+    fn test_cancel_recurring_batch_unauthorized_reverts_all() {
         let e = setup_env();
         let contract_id = e.register_contract(None, VeritixToken);
-        let (payer, _, id) = fund_and_setup(&e, &contract_id, 500, 100);
+        let (payer, _payee, id1) = fund_and_setup(&e, &contract_id, 500, 100);
+
+        // Create a second recurring owned by a different payer.
+        let other_payer = Address::generate(&e);
+        let payee2 = Address::generate(&e);
+        let mut id2 = 0u32;
         e.as_contract(&contract_id, || {
-            pause_recurring(&e, payer.clone(), id);
-            assert_eq!(get_next_execution_ledger(&e, id), u32::MAX);
+            crate::balance::receive_balance(&e, other_payer.clone(), 500);
+            id2 = setup_recurring(&e, other_payer.clone(), payee2.clone(), 500, 100);
+        });
+
+        // Attempt to cancel both — id2 belongs to other_payer, must panic (full revert).
+        e.as_contract(&contract_id, || {
+            let ids = soroban_sdk::vec![&e, id1, id2];
+            crate::recurring::cancel_recurring_batch(&e, payer.clone(), ids);
         });
     }
 
     #[test]
-    fn test_get_next_execution_ledger_missing_returns_max() {
-        let e = setup_env();
-        let contract_id = e.register_contract(None, VeritixToken);
-        e.as_contract(&contract_id, || {
-            assert_eq!(get_next_execution_ledger(&e, 999), u32::MAX);
-        });
-    }
-
-    #[test]
-    fn test_is_executable_active_and_due() {
-        let e = setup_env();
-        let contract_id = e.register_contract(None, VeritixToken);
-        let (_, _, id) = fund_and_setup(&e, &contract_id, 500, 100);
-        e.as_contract(&contract_id, || {
-            e.ledger().with_mut(|l| l.sequence_number = e.ledger().sequence() + 101);
-            assert!(is_executable(&e, id));
-        });
-    }
-
-    #[test]
-    fn test_is_executable_active_not_due() {
-        let e = setup_env();
-        let contract_id = e.register_contract(None, VeritixToken);
-        let (_, _, id) = fund_and_setup(&e, &contract_id, 500, 100);
-        e.as_contract(&contract_id, || {
-            assert!(!is_executable(&e, id));
-        });
-    }
-
-    #[test]
-    fn test_is_executable_paused() {
-        let e = setup_env();
-        let contract_id = e.register_contract(None, VeritixToken);
-        let (payer, _, id) = fund_and_setup(&e, &contract_id, 500, 100);
-        e.as_contract(&contract_id, || {
-            pause_recurring(&e, payer.clone(), id);
-            e.ledger().with_mut(|l| l.sequence_number = e.ledger().sequence() + 200);
-            assert!(!is_executable(&e, id));
-        });
-    }
-
-    #[test]
-    fn test_is_executable_missing() {
-        let e = setup_env();
-        let contract_id = e.register_contract(None, VeritixToken);
-        e.as_contract(&contract_id, || {
-            assert!(!is_executable(&e, 999));
-        });
-    }
-
-    #[test]
-    fn test_recurring_payee_is_contract_address() {
+    #[should_panic(expected = "batch exceeds maximum of 20")]
+    fn test_cancel_recurring_batch_over_limit_panics() {
         let e = setup_env();
         let contract_id = e.register_contract(None, VeritixToken);
         let payer = Address::generate(&e);

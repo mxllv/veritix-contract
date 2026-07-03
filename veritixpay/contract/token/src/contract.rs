@@ -8,6 +8,7 @@ use crate::dispute::{
     get_open_disputes, open_dispute, resolve_dispute, DisputeRecord,
 };
 use crate::escrow::{
+use crate::escrow::{
     admin_settle_escrow as escrow_admin_settle, create_escrow as escrow_create,
     escrow_stats as escrow_get_stats, get_escrow as escrow_get, refund_escrow as escrow_refund,
     release_escrow as escrow_release, EscrowRecord,
@@ -22,7 +23,8 @@ use crate::recurring::{
 };
 use crate::splitter::{
     cancel_split as split_cancel, create_split as split_create, distribute as split_distribute,
-    get_split as split_get, SplitRecord, SplitRecipient,
+    get_split as split_get, splitter_stats as split_stats, SplitRecord, SplitRecipient,
+    SplitterStats,
 };
 use crate::validation::{require_not_frozen_account, require_positive_amount};
 use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Bytes, Env, String, Vec};
@@ -395,6 +397,10 @@ impl VeritixToken {
         crate::storage_types::bump_instance(&e);
         crate::storage_types::read_counter(&e, &crate::storage_types::DataKey::SplitCount)
     }
+    pub fn splitter_stats(e: Env) -> SplitterStats {
+        crate::storage_types::bump_instance(&e);
+        split_stats(&e)
+    }
 
     // --- Recurring Payments ---
     pub fn setup_recurring(e: Env, payer: Address, payee: Address, amount: i128, interval: u32) -> u32 {
@@ -433,5 +439,15 @@ impl VeritixToken {
     }
     pub fn is_executable(e: Env, recurring_id: u32) -> bool {
         is_executable(&e, recurring_id)
+    }
+
+    /// Returns the first active escrow ID between depositor and beneficiary, or None.
+    pub fn escrow_between(e: Env, depositor: Address, beneficiary: Address) -> Option<u32> {
+        escrow_between_fn(&e, depositor, beneficiary)
+    }
+
+    /// Batch-cancels up to 20 recurring payments owned by payer atomically.
+    pub fn cancel_recurring_batch(e: Env, payer: Address, recurring_ids: Vec<u32>) {
+        crate::recurring::cancel_recurring_batch(&e, payer, recurring_ids)
     }
 }

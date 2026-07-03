@@ -51,6 +51,7 @@ pub enum DataKey {
     Snapshot(u32),
     EscrowCount,
     Escrow(u32),
+    DepositorEscrows(Address),
     RecurringCount,
     Recurring(u32),
     PayerRecurrings(Address),
@@ -70,6 +71,9 @@ pub enum DataKey {
     PendingAdmin,
     ExpiryWarned(u32),
     Nonce(Address),
+    DistributedCount,
+    CancelledCount,
+    TotalDistributedValue,
 }
 
 pub fn read_persistent_record<T>(e: &Env, key: &DataKey, missing_message: &'static str) -> T
