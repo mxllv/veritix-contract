@@ -61,6 +61,23 @@ pub struct ContractStats {
 #[contractimpl]
 impl VeritixToken {
     // --- Admin ---
+    /// Initialises the token contract, setting the admin address and token metadata.
+    ///
+    /// # Arguments
+    /// * `e` - Soroban execution environment.
+    /// * `admin` - Address that will hold admin privileges (mint, clawback, freeze, pause).
+    /// * `name` - Human-readable token name (e.g. `"Veritix Pay"`).
+    /// * `symbol` - Ticker symbol (e.g. `"VTX"`).
+    /// * `decimal` - Decimal precision used by wallet UIs (typically `7` on Stellar).
+    ///
+    /// # Panics
+    /// * `"AlreadyInitialized"` — if the contract has been previously initialised.
+    /// * Panics from `validate_metadata` if name/symbol are empty or too long.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// client.initialize(&admin, &name, &symbol, &7u32);
+    /// ```
     pub fn initialize(e: Env, admin: Address, name: String, symbol: String, decimal: u32) {
         if has_admin(&e) {
             panic!("AlreadyInitialized");
@@ -117,6 +134,27 @@ impl VeritixToken {
     }
 
     // --- Token Operations ---
+    /// Mints `amount` new tokens into `to`'s balance.
+    ///
+    /// Only the contract admin may call this function.  Increases total supply.
+    ///
+    /// # Arguments
+    /// * `e` - Soroban execution environment.
+    /// * `admin` - Caller; must equal the stored admin address.
+    /// * `to` - Recipient of the newly minted tokens.
+    /// * `amount` - Positive quantity to mint (in base units).
+    ///
+    /// # Panics
+    /// * `"InvalidRecipient: cannot transfer directly to the contract address"` — if `to` is the contract.
+    /// * `"Unauthorized"` — if `admin` is not the current admin.
+    /// * `"Paused"` — if the contract is paused.
+    /// * `"InvalidAmount: must be positive"` — if `amount ≤ 0`.
+    /// * `"supply overflow"` — if minting would overflow `i128`.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// client.mint(&admin, &recipient, &500_000_0000i128);
+    /// ```
     pub fn mint(e: Env, admin: Address, to: Address, amount: i128) {
         if to == e.current_contract_address() {
             panic!("InvalidRecipient: cannot transfer directly to the contract address — use create_escrow instead");
@@ -128,6 +166,25 @@ impl VeritixToken {
         increase_supply(&e, amount);
         e.events().publish((symbol_short!("mint"), admin), (to, amount));
     }
+    /// Burns `amount` tokens from `from`'s balance, reducing total supply.
+    ///
+    /// Requires `from` to authorise the call.
+    ///
+    /// # Arguments
+    /// * `e` - Soroban execution environment.
+    /// * `from` - Address whose balance is reduced; must `require_auth`.
+    /// * `amount` - Positive quantity to burn (in base units).
+    ///
+    /// # Panics
+    /// * `"Paused"` — if the contract is paused.
+    /// * `"InvalidAmount: must be positive"` — if `amount ≤ 0`.
+    /// * `"InsufficientBalance"` — if `from` lacks sufficient funds.
+    /// * `"supply underflow"` — if burning would underflow.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// client.burn(&holder, &100_0000i128);
+    /// ```
     pub fn burn(e: Env, from: Address, amount: i128) {
         from.require_auth();
         require_not_paused(&e);
@@ -174,6 +231,28 @@ impl VeritixToken {
     pub fn burn_from_batch(e: Env, spender: Address, targets: Vec<(Address, i128)>) {
         burn_from_batch(&e, spender, targets);
     }
+    /// Transfers `amount` tokens from `from` to `to`.
+    ///
+    /// Requires `from` to authorise the call.  The contract must not be paused
+    /// and neither account may be frozen.
+    ///
+    /// # Arguments
+    /// * `e` - Soroban execution environment.
+    /// * `from` - Sender address; must call `require_auth` implicitly.
+    /// * `to` - Recipient address.
+    /// * `amount` - Positive token quantity (in base units).
+    ///
+    /// # Panics
+    /// * `"InvalidRecipient: cannot transfer directly to the contract address"` — if `to` equals the contract.
+    /// * `"Paused"` — if the contract is paused.
+    /// * `"AccountFrozen"` — if either party is frozen.
+    /// * `"InsufficientBalance"` — if `from` lacks sufficient funds.
+    /// * `"InvalidAmount: must be positive"` — if `amount ≤ 0`.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// client.transfer(&from, &to, &1_000_0000i128);
+    /// ```
     pub fn transfer(e: Env, from: Address, to: Address, amount: i128) {
         if to == e.current_contract_address() {
             panic!("InvalidRecipient: cannot transfer directly to the contract address — use create_escrow instead");
@@ -329,9 +408,47 @@ impl VeritixToken {
     }
 
     // --- Escrow ---
+    /// Creates a new escrow and locks `amount` tokens from `depositor` until `expiry_ledger`.
+    ///
+    /// Returns the numeric escrow ID that must be passed to `release_escrow`,
+    /// `refund_escrow`, or `admin_settle_escrow`.
+    ///
+    /// # Arguments
+    /// * `e` - Soroban execution environment.
+    /// * `depositor` - Address funding the escrow; must `require_auth`.
+    /// * `beneficiary` - Address that receives funds on release.
+    /// * `amount` - Positive token quantity to lock.
+    /// * `expiry_ledger` - Ledger number after which the depositor may reclaim funds.
+    ///
+    /// # Panics
+    /// * `"InvalidAmount: must be positive"` — if `amount ≤ 0`.
+    /// * `"InsufficientBalance"` — if `depositor` has insufficient balance.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// let id = client.create_escrow(&buyer, &seller, &10_000_0000i128, &current_ledger + 1000);
+    /// ```
     pub fn create_escrow(e: Env, depositor: Address, beneficiary: Address, amount: i128, expiry_ledger: u32) -> u32 {
         escrow_create(&e, depositor, beneficiary, amount, expiry_ledger)
     }
+    /// Releases an escrow, transferring the locked amount to the beneficiary.
+    ///
+    /// Only the depositor or the contract admin may release before expiry.
+    ///
+    /// # Arguments
+    /// * `e` - Soroban execution environment.
+    /// * `caller` - Depositor or admin; must `require_auth`.
+    /// * `escrow_id` - ID returned by `create_escrow`.
+    ///
+    /// # Panics
+    /// * `"EscrowNotFound"` — if no escrow exists with the given ID.
+    /// * `"Unauthorized"` — if `caller` is neither the depositor nor the admin.
+    /// * `"EscrowAlreadyReleased"` — if the escrow has been previously settled.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// client.release_escrow(&buyer, &escrow_id);
+    /// ```
     pub fn release_escrow(e: Env, caller: Address, escrow_id: u32) {
         escrow_release(&e, caller, escrow_id)
     }
@@ -354,9 +471,47 @@ impl VeritixToken {
     }
 
     // --- Disputes ---
+    /// Opens a dispute against an escrow, freezing it until resolved or expired.
+    ///
+    /// Returns a dispute ID.  The designated `resolver` must call `resolve_dispute`
+    /// or the dispute will expire automatically at `expiry_ledger`.
+    ///
+    /// # Arguments
+    /// * `e` - Soroban execution environment.
+    /// * `claimant` - Party opening the dispute; must `require_auth`.
+    /// * `escrow_id` - Target escrow ID.
+    /// * `resolver` - Trusted third party authorised to resolve the dispute.
+    /// * `evidence` - Arbitrary bytes (e.g. IPFS CID, hash of off-chain evidence).
+    /// * `expiry_ledger` - Ledger at which the dispute auto-expires if unresolved.
+    ///
+    /// # Panics
+    /// * `"EscrowNotFound"` — if the escrow does not exist.
+    /// * `"DisputeAlreadyOpen"` — if a dispute is already pending for this escrow.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// let dispute_id = client.open_dispute(&buyer, &escrow_id, &resolver, &evidence_bytes, &expiry);
+    /// ```
     pub fn open_dispute(e: Env, claimant: Address, escrow_id: u32, resolver: Address, evidence: Bytes, expiry_ledger: u32) -> u32 {
         open_dispute(&e, claimant, escrow_id, resolver, evidence, expiry_ledger)
     }
+    /// Resolves an open dispute, releasing the escrowed funds to one party.
+    ///
+    /// # Arguments
+    /// * `e` - Soroban execution environment.
+    /// * `resolver` - Address designated at `open_dispute`; must `require_auth`.
+    /// * `dispute_id` - ID returned by `open_dispute`.
+    /// * `release_to_beneficiary` - If `true`, funds go to the beneficiary; if `false`, funds return to the depositor.
+    ///
+    /// # Panics
+    /// * `"DisputeNotFound"` — if no dispute exists with the given ID.
+    /// * `"Unauthorized"` — if `resolver` does not match the stored resolver.
+    /// * `"DisputeExpired"` — if `expiry_ledger` has passed.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// client.resolve_dispute(&resolver, &dispute_id, &true);
+    /// ```
     pub fn resolve_dispute(e: Env, resolver: Address, dispute_id: u32, release_to_beneficiary: bool) {
         resolve_dispute(&e, resolver, dispute_id, release_to_beneficiary)
     }
@@ -378,9 +533,43 @@ impl VeritixToken {
     }
 
     // --- Splitter ---
+    /// Creates a split-payment order, locking `total_amount` for distribution to `recipients`.
+    ///
+    /// Returns a split ID.  Call `distribute` to execute the payment once the split is ready.
+    ///
+    /// # Arguments
+    /// * `e` - Soroban execution environment.
+    /// * `sender` - Funding address; must `require_auth`.
+    /// * `recipients` - List of `(address, basis_points)` entries. Basis points must sum to 10 000.
+    /// * `total_amount` - Total positive token quantity to split.
+    ///
+    /// # Panics
+    /// * `"InvalidAmount: must be positive"` — if `total_amount ≤ 0`.
+    /// * `"InvalidSplit: basis points must sum to 10000"` — if the sum is incorrect.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// let split_id = client.create_split(&sender, &recipients, &1_000_0000i128);
+    /// ```
     pub fn create_split(e: Env, sender: Address, recipients: Vec<SplitRecipient>, total_amount: i128) -> u32 {
         split_create(&e, sender, recipients, total_amount)
     }
+    /// Distributes a previously created split, transferring each recipient's share.
+    ///
+    /// # Arguments
+    /// * `e` - Soroban execution environment.
+    /// * `caller` - The original sender or admin; must `require_auth`.
+    /// * `split_id` - ID returned by `create_split`.
+    ///
+    /// # Panics
+    /// * `"SplitNotFound"` — if no split exists with the given ID.
+    /// * `"Unauthorized"` — if `caller` did not create the split.
+    /// * `"AlreadyDistributed"` — if the split has already been executed.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// client.distribute(&sender, &split_id);
+    /// ```
     pub fn distribute(e: Env, caller: Address, split_id: u32) {
         split_distribute(&e, caller, split_id)
     }
@@ -403,9 +592,49 @@ impl VeritixToken {
     }
 
     // --- Recurring Payments ---
+    /// Sets up a recurring payment from `payer` to `payee`.
+    ///
+    /// Returns a recurring-payment ID.  Call `execute_recurring` each time a
+    /// payment is due (when the current ledger ≥ last execution + `interval`).
+    ///
+    /// # Arguments
+    /// * `e` - Soroban execution environment.
+    /// * `payer` - Address charged on each execution; must `require_auth`.
+    /// * `payee` - Address receiving the periodic payment.
+    /// * `amount` - Positive token quantity per execution cycle.
+    /// * `interval` - Number of ledgers between executions (e.g. `17_280` ≈ 1 day).
+    ///
+    /// # Panics
+    /// * `"InvalidAmount: must be positive"` — if `amount ≤ 0`.
+    /// * `"InvalidInterval"` — if `interval` is zero.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// let id = client.setup_recurring(&payer, &payee, &50_0000i128, &17_280u32);
+    /// ```
     pub fn setup_recurring(e: Env, payer: Address, payee: Address, amount: i128, interval: u32) -> u32 {
         setup_recurring(&e, payer, payee, amount, interval)
     }
+    /// Executes one cycle of a recurring payment if the interval has elapsed.
+    ///
+    /// Can be called by anyone (permissionless keeper pattern); it checks internally
+    /// that the current ledger is past the scheduled next-execution ledger.
+    ///
+    /// # Arguments
+    /// * `e` - Soroban execution environment.
+    /// * `recurring_id` - ID returned by `setup_recurring`.
+    ///
+    /// # Panics
+    /// * `"RecurringNotFound"` — if no recurring payment exists with the given ID.
+    /// * `"NotDueYet"` — if the interval has not elapsed since the last execution.
+    /// * `"Paused"` — if the contract is paused.
+    /// * `"RecurringPaused"` — if this specific recurring payment has been paused.
+    /// * `"InsufficientBalance"` — if the payer lacks funds.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// client.execute_recurring(&recurring_id);
+    /// ```
     pub fn execute_recurring(e: Env, recurring_id: u32) {
         execute_recurring(&e, recurring_id)
     }

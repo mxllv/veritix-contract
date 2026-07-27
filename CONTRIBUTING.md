@@ -29,6 +29,7 @@ Core token primitives, escrow, and freeze modules are implemented and tested. So
 | Rust (stable) | Required to compile Soroban contracts | https://rustup.rs |
 | wasm32 target | Required build target for Soroban | `rustup target add wasm32-unknown-unknown` |
 | Stellar CLI (latest) | For building and deploying contracts | `cargo install stellar-cli` |
+| Stellar testnet account | Required for live deployment tests | Run `stellar keys generate --global test-key --network testnet` |
 
 Verify your setup:
 
@@ -349,11 +350,46 @@ Before marking your PR ready for review, confirm all of the following:
 - `make build`
 - `make test`
 
-### Adding a new module
-1. Create `src/<module>.rs`.
-2. Add `pub mod <module>;` in `src/lib.rs`.
-3. Wire public entrypoints from `contract.rs` when exposed.
-4. Add/update tests and ensure module is included under `#[cfg(test)]` if split test files are used.
+### Adding a module function (step-by-step)
+
+The walkthrough below uses a hypothetical `counter` module as an example.
+
+1. **Add to module** — create or update `src/<module>.rs` with your function.
+
+2. **Expose from `contract.rs`** — import the module and add a `pub fn` in `impl VeritixToken`:
+   ```rust
+   pub fn my_function(e: Env, actor: Address, value: i128) {
+       actor.require_auth();
+       module::my_function(&e, actor, value);
+   }
+   ```
+
+3. **Emit an event** — every state-changing function must emit a Soroban event:
+   ```rust
+   e.events().publish(
+       (symbol_short!("my_fn"), actor),
+       value,
+   );
+   ```
+   Use `symbol_short!` (≤ 9 characters). Keep the topic tuple stable — indexers
+   rely on it.
+
+4. **Add tests** — create or update `src/<module>_test.rs` covering at least:
+   - Happy path
+   - Auth-missing case (see Test Conventions below)
+   - Relevant error / edge cases
+
+5. **Update reference docs** — add your function to:
+   - `docs/error-codes.md` — list every panic string it can produce.
+   - `docs/events-reference.md` — document the event topic and data structure.
+
+6. **Declare the test module** — add `#[cfg(test)] mod <module>_test;` to `lib.rs`
+   so `cargo test` picks it up.
+
+7. **Verify**:
+   ```bash
+   make test && make fmt && cargo clippy --all -- -D warnings
+   ```
 
 ### Storage conventions
 - Use instance storage for global config and counters.
@@ -368,11 +404,49 @@ Before marking your PR ready for review, confirm all of the following:
 - Use short symbols (`symbol_short!`) for event names.
 - Keep topic/data structure deterministic and stable for indexers.
 
-### Panic test conventions
-- Use `#[should_panic(expected = \"...\")]` when asserting deterministic panic paths.
+### Test conventions
+
+**Panic tests** — always supply the expected panic message so a wrong-message panic
+does not accidentally make the test pass:
+
+```rust
+#[test]
+#[should_panic(expected = "InvalidAmount: must be positive")]
+fn test_mint_zero_panics() {
+    let (env, admin, client) = setup();
+    client.mint(&admin, &Address::generate(&env), &0i128);
+}
+```
+
+**Time-based tests** — advance ledger time with `env.ledger().set_sequence_number()`
+(for ledger-based timers) or `env.ledger().set_timestamp()` (for Unix-time guards).
+Do **not** `std::thread::sleep` in tests — the Soroban test env is synchronous:
+
+```rust
+env.ledger().set_sequence_number(current + interval + 1);
+client.execute_recurring(&recurring_id);
+```
+
+**Auth-missing tests** — every function that calls `require_auth` must have a test
+that verifies it panics when auth is stripped:
+
+```rust
+#[test]
+#[should_panic]
+fn test_transfer_without_auth_panics() {
+    let (env, _admin, client) = setup();
+    let (from, to) = (Address::generate(&env), Address::generate(&env));
+    env.set_auths(&[]); // strip all auth
+    client.transfer(&from, &to, &100i128);
+}
+```
+
+**PR checklist for every change touching `src/`:**
 - [ ] No new `unwrap()` calls on untrusted or external data
 - [ ] `storage_types.rs` updated if new storage keys were added
 - [ ] `lib.rs` updated if a new module was added
+- [ ] `docs/error-codes.md` updated if new panics were added
+- [ ] `docs/events-reference.md` updated if new events were added
 - [ ] PR description explains what the change does and why
 
 ---
