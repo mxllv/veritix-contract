@@ -132,7 +132,7 @@ pub fn expire_dispute(e: &Env, dispute_id: u32) {
     let mut dispute: DisputeRecord = e.storage().persistent().get(&dispute_key).expect("Dispute not found");
     bump_dispute(e, &dispute_key);
     if dispute.status != DisputeStatus::Open { panic!("AlreadyResolved: dispute is not open"); }
-    if e.ledger().sequence() <= dispute.expiry_ledger { panic!("NotExpired: expiry ledger has not been reached"); }
+    if e.ledger().sequence() < dispute.expiry_ledger { panic!("NotExpired: expiry ledger has not been reached"); }
     let escrow_id = dispute.escrow_id;
     settle_escrow_by_outcome(e, escrow_id, false);
     dispute.status = DisputeStatus::Expired;

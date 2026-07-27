@@ -940,7 +940,7 @@ fn test_admin_settle_escrow_frozen_beneficiary_alternate_recipient() {
         assert!(get_escrow(&e, escrow_id).released);
     });
 }
-#[should_panic(expected = "DisputeOpen: cannot refund while a dispute is active — wait for resolution")]
+#[should_panic(expected = "DisputeOpen: cannot refund while an active dispute is pending resolution")]
 fn test_refund_escrow_with_open_dispute_panics() {
     let e = setup_env();
     let contract_id = e.register_contract(None, VeritixToken);
