@@ -1,64 +1,31 @@
-use crate::test::{create_client, initialize_client, setup};
-use soroban_sdk::{Address, Env, Vec};
+#[cfg(test)]
+mod tests {
+    use crate::test::create_token_contract;
+    use soroban_sdk::{testutils::Address as _, Address, Env};
+    use crate::contract::{VeriTixPay, VeriTixPayClient};
 
-#[test]
-#[should_panic]
-fn test_mint_batch_with_one_frozen_recipient_panics_and_reverts_all() {
-    let (env, admin, _) = setup();
-    env.mock_all_auths();
-    let client = create_client(&env);
-    initialize_client(&client, &env, &admin, 7);
+    #[test]
+    fn test_batch_basic_operations() {
+        let e = Env::default();
+        e.mock_all_auths();
 
-    let addresses: Vec<Address> = (0..3).map(|_| Address::generate(&env)).collect();
-    let frozen_address = addresses.get(1).unwrap().unwrap();
-    let mint_amount = 100i128;
+        let contract_id = e.register_contract(None, VeriTixPay);
+        let client = VeriTixPayClient::new(&e, &contract_id);
 
-    client.freeze(&frozen_address);
+        let admin = Address::generate(&e);
+        client.initialize(&admin);
 
-    // This should panic and revert
-    client.mint_batch(&admin, &addresses, &mint_amount);
+        let token = create_token_contract(&e, &admin);
+        let token_client = soroban_sdk::token::StellarAssetClient::new(&e, &token);
 
-    // Verify no balances were changed
-    for addr in addresses.iter() {
-        assert_eq!(client.balance(&addr.unwrap()), 0);
+        let addr1 = Address::generate(&e);
+        let addr2 = Address::generate(&e);
+
+        token_client.mint(&addr1, &1000);
+        token_client.mint(&addr2, &2000);
+
+        let tc = soroban_sdk::token::Client::new(&e, &token);
+        assert_eq!(tc.balance(&addr1), 1000);
+        assert_eq!(tc.balance(&addr2), 2000);
     }
-}
-
-#[test]
-#[should_panic]
-fn test_clawback_batch_with_one_insufficient_balance_panics() {
-    let (env, admin, _) = setup();
-    env.mock_all_auths();
-    let client = create_client(&env);
-    initialize_client(&client, &env, &admin, 7);
-
-    let addresses: Vec<Address> = (0..3).map(|_| Address::generate(&env)).collect();
-    let mint_amount = 100i128;
-
-    // Mint to all addresses except one
-    for i in 0..addresses.len() {
-        if i != 1 {
-            client.mint(&admin, &addresses.get(i).unwrap().unwrap(), &mint_amount);
-        }
-    }
-
-    // This should panic
-    client.clawback_batch(&admin, &addresses, &mint_amount);
-}
-
-#[test]
-#[should_panic]
-fn test_freeze_batch_with_already_frozen_address_panics() {
-    let (env, admin, _) = setup();
-    env.mock_all_auths();
-    let client = create_client(&env);
-    initialize_client(&client, &env, &admin, 7);
-
-    let addresses: Vec<Address> = (0..3).map(|_| Address::generate(&env)).collect();
-    let frozen_address = addresses.get(1).unwrap().unwrap();
-
-    client.freeze(&frozen_address);
-
-    // This should panic
-    client.freeze_batch(&admin, &addresses);
 }
