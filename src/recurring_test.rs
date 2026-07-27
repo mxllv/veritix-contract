@@ -1,7 +1,7 @@
 #![cfg(test)]
 
-use soroban_sdk::{Env, testutils::Address as _};
-use crate::recurring::{execute_recurring, get_recurring_history};
+use soroban_sdk::{Env, testutils::Address as _, testutils::Ledger as _};
+use crate::recurring::{record_recurring_execution, get_recurring_history};
 
 #[test]
 fn test_recurring_history_grows() {
@@ -12,7 +12,7 @@ fn test_recurring_history_grows() {
     let recurring_id = 1;
     let amount = 500;
     
-    execute_recurring(e.clone(), caller.clone(), recurring_id, amount);
+    record_recurring_execution(e.clone(), caller.clone(), recurring_id, amount);
     
     let history = get_recurring_history(e.clone(), recurring_id);
     assert_eq!(history.len(), 1);
@@ -20,8 +20,8 @@ fn test_recurring_history_grows() {
     assert_eq!(history.get(0).unwrap().execution_ledger, e.ledger().sequence());
     
     // Simulate next execution
-    e.ledger().set_sequence(e.ledger().sequence() + 10);
-    execute_recurring(e.clone(), caller.clone(), recurring_id, amount);
+    e.ledger().with_mut(|l| l.sequence_number = e.ledger().sequence() + 10);
+    record_recurring_execution(e.clone(), caller.clone(), recurring_id, amount);
     
     let history = get_recurring_history(e.clone(), recurring_id);
     assert_eq!(history.len(), 2);

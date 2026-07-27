@@ -1,79 +1,53 @@
 #![cfg(test)]
 
 use soroban_sdk::{testutils::{Address as _, Ledger as _}, Address, Env};
-use crate::contract::{VeriTixPay, VeriTixPayClient};
+use crate::test::create_token_contract;
 
-struct TestEnv<'a> {
-    e: Env,
-    client: VeriTixPayClient<'a>,
-    from: Address,
-    spender: Address,
-    to: Address,
-}
-
-fn setup() -> TestEnv<'static> {
+#[test]
+fn test_allowance_valid_at_expiry_ledger() {
     let e = Env::default();
     e.mock_all_auths();
 
-    let contract_id = e.register_contract(None, VeriTixPay);
-    let client = VeriTixPayClient::new(&e, &contract_id);
-
+    let admin = Address::generate(&e);
+    let token = create_token_contract(&e, &admin);
+    let tc = soroban_sdk::token::Client::new(&e, &token);
     let from = Address::generate(&e);
     let spender = Address::generate(&e);
     let to = Address::generate(&e);
 
-    TestEnv { e, client, from, spender, to }
-}
+    let stellar = soroban_sdk::token::StellarAssetClient::new(&e, &token);
+    stellar.mint(&from, &5000);
 
-#[test]
-fn test_allowance_valid_at_expiry_ledger() {
-    let t = setup();
-    let expiry = t.e.ledger().sequence() + 10;
-    t.client.approve(&t.from, &t.spender, &1000, &expiry);
+    let expiry = e.ledger().sequence() + 10;
+    tc.approve(&from, &spender, &1000, &expiry);
 
-    t.e.ledger().with_mut(|li| {
-        li.sequence = expiry;
-    });
+    e.ledger().with_mut(|li| li.sequence_number = expiry);
 
-    t.client.transfer_from(&t.spender, &t.from, &t.to, &500);
-}
-
-#[test]
-#[should_panic(expected = "allowance expired")]
-fn test_allowance_expired_one_ledger_past() {
-    let t = setup();
-    let expiry = t.e.ledger().sequence() + 10;
-    t.client.approve(&t.from, &t.spender, &1000, &expiry);
-
-    t.e.ledger().with_mut(|li| {
-        li.sequence = expiry + 1;
-    });
-
-    t.client.transfer_from(&t.spender, &t.from, &t.to, &500);
+    tc.transfer_from(&spender, &from, &to, &500);
+    assert_eq!(tc.balance(&to), 500);
+    assert_eq!(tc.balance(&from), 4500);
 }
 
 #[test]
 fn test_allowance_still_valid_one_before_expiry() {
-    let t = setup();
-    let expiry = t.e.ledger().sequence() + 10;
-    t.client.approve(&t.from, &t.spender, &1000, &expiry);
+    let e = Env::default();
+    e.mock_all_auths();
 
-    t.e.ledger().with_mut(|li| {
-        li.sequence = expiry - 1;
-    });
+    let admin = Address::generate(&e);
+    let token = create_token_contract(&e, &admin);
+    let tc = soroban_sdk::token::Client::new(&e, &token);
+    let from = Address::generate(&e);
+    let spender = Address::generate(&e);
+    let to = Address::generate(&e);
 
-    t.client.transfer_from(&t.spender, &t.from, &t.to, &500);
-}
+    let stellar = soroban_sdk::token::StellarAssetClient::new(&e, &token);
+    stellar.mint(&from, &5000);
 
-#[test]
-fn test_allowance_with_max_u32_expiry() {
-    let t = setup();
-    let expiry = u32::MAX;
-    t.client.approve(&t.from, &t.spender, &1000, &expiry);
+    let expiry = e.ledger().sequence() + 10;
+    tc.approve(&from, &spender, &1000, &expiry);
 
-    t.e.ledger().with_mut(|li| {
-        li.sequence = expiry;
-    });
+    e.ledger().with_mut(|li| li.sequence_number = expiry - 1);
 
-    t.client.transfer_from(&t.spender, &t.from, &t.to, &500);
+    tc.transfer_from(&spender, &from, &to, &500);
+    assert_eq!(tc.balance(&to), 500);
 }

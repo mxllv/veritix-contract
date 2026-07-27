@@ -1,4 +1,3 @@
-/// The maximum amount of tokens a single standard escrow can lock.
 pub const MAX_ESCROW_AMOUNT: i128 = i128::MAX / 100;
 
 use soroban_sdk::{contracttype, Address};
@@ -7,6 +6,8 @@ use soroban_sdk::{contracttype, Address};
 #[derive(Clone)]
 pub enum DataKey {
     Admin,
+    AdminActiveAfter,
+    ProposedAdmin,
     EscrowCount,
     Escrow(u32),
     DepositorEscrows(Address),
@@ -19,10 +20,14 @@ pub enum DataKey {
     Allowance(Address, Address),
     Frozen(Address),
     EscrowDispute(u32),
-    LastEscrowTime(Address),
     TotalSupply,
     RecurringCount,
     Recurring(u32),
+    Arbiter,
+    ResolverStats(Address),
+    FeeBps,
+    TreasuryAddress,
+    TotalFeesCollected,
 }
 
 #[contracttype]
@@ -33,3 +38,11 @@ pub struct RecurringPayment {
     pub amount: i128,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct ResolverStats {
+    pub resolver: Address,
+    pub total_resolved: u32,
+    pub for_beneficiary: u32,
+    pub for_depositor: u32,
+}

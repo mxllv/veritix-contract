@@ -1,39 +1,11 @@
 use soroban_sdk::{contract, contractimpl, Address, Bytes, Env, Vec};
-use crate::{escrow, multi_escrow, allowance};
-use crate::admin::validate_admin_address;
-use crate::storage_types::DataKey;
-use crate::validation::require_positive_amount; // Security audit import
-use crate::storage_types::RecurringPayment;
-use crate::{dispute, recurring};
-pub struct EscrowContract;
-
-#[contractimpl]
-impl EscrowContract {
-    /// Initializes the global escrow contract configuration state
-    ///
-    /// # Arguments
-    /// * `env` - The current execution environment.
-    /// * `admin` - The primary controller keypair address.
-    ///
-    /// # Safety Warning
-    /// **CRITICAL:** The `admin` address must be a funded, valid, and accessible account or 
-    /// deployed contract signature context. Initializing the contract with an incorrect, dead, 
-    /// or un-controlled address will permanently and irreversibly lock all admin-restricted actions.
-    pub fn initialize(env: Env, admin: Address) {
-        // 1. Strict Requirement: Fail-fast if the input address is unsafe or uninitialized
-        validate_admin_address(&env, &admin);
-
-        // 2. Assert initialization hasn't run yet
-        if env.storage().persistent().has(&DataKey::Admin) {
-            panic!("AlreadyInitialized: contract state is locked");
-        }
-
-        // 3. Save admin address securely to persistent state storage
-        env.storage().persistent().set(&DataKey::Admin, &admin);
-    }
-}
+use crate::{escrow, multi_escrow, allowance, admin, dispute, recurring};
+use crate::storage_types::{DataKey, RecurringPayment, ResolverStats};
+use crate::validation::require_positive_amount;
 
 pub trait VeriTixPayTrait {
+    fn initialize(e: Env, admin: Address);
+
     // ── Escrow ────────────────────────────────────────────────────────────────
     fn create_escrow(
         e: Env,
@@ -53,9 +25,13 @@ pub trait VeriTixPayTrait {
     fn escrowed_total(e: Env) -> i128;
     fn place_lien(e: Env, creditor: Address, escrow_id: u32, lien_amount: i128);
     fn clear_lien(e: Env, caller: Address, escrow_id: u32);
+    fn get_escrow(e: Env, escrow_id: u32) -> escrow::EscrowRecord;
 
     // ── Disputes ──────────────────────────────────────────────────────────────
     fn get_disputes_by_claimant(e: Env, claimant: Address) -> Vec<u32>;
+    fn set_arbiter(e: Env, arbiter: Address);
+    fn raise_dispute(e: Env, caller: Address, escrow_id: u32);
+    fn resolve_dispute(e: Env, resolver: Address, escrow_id: u32, winner: Address);
 
     // ── Recurring Payments ────────────────────────────────────────────────────
     fn get_recurring_history(e: Env, recurring_id: u32) -> Vec<RecurringPayment>;
@@ -97,6 +73,20 @@ pub trait VeriTixPayTrait {
     // ── Allowance ─────────────────────────────────────────────────────────────
     fn approve(e: Env, from: Address, spender: Address, amount: i128, expiration_ledger: u32);
     fn transfer_from(e: Env, spender: Address, from: Address, to: Address, amount: i128);
+
+    // ── #451: Admin ownership ────────────────────────────────────────────────
+    fn transfer_ownership(e: Env, new_admin: Address);
+    fn accept_admin(e: Env, new_admin: Address);
+    fn admin_active_after_ledger(e: Env) -> u32;
+
+    // ── #452: Depositor escrowed value ───────────────────────────────────────
+    fn escrowed_value_for_depositor(e: Env, depositor: Address) -> i128;
+
+    // ── #453: Resolver stats ─────────────────────────────────────────────────
+    fn resolver_stats(e: Env, resolver: Address) -> ResolverStats;
+
+    // ── #454: Protocol fee stats ─────────────────────────────────────────────
+    fn protocol_fee_stats(e: Env) -> (u32, Address, i128);
 }
 
 #[contract]
@@ -104,6 +94,16 @@ pub struct VeriTixPay;
 
 #[contractimpl]
 impl VeriTixPayTrait for VeriTixPay {
+    fn initialize(env: Env, admin: Address) {
+        admin::validate_admin_address(&env, &admin);
+
+        if env.storage().persistent().has(&DataKey::Admin) {
+            panic!("AlreadyInitialized: contract state is locked");
+        }
+
+        env.storage().persistent().set(&DataKey::Admin, &admin);
+    }
+
     fn create_escrow(
         e: Env,
         depositor: Address,
@@ -150,12 +150,30 @@ impl VeriTixPayTrait for VeriTixPay {
         escrow::clear_lien(e, caller, escrow_id)
     }
 
+    fn get_escrow(e: Env, escrow_id: u32) -> escrow::EscrowRecord {
+        escrow::load_record(&e, escrow_id)
+    }
+
     fn get_disputes_by_claimant(e: Env, claimant: Address) -> Vec<u32> {
         dispute::get_disputes_by_claimant(e, claimant)
     }
 
+    fn set_arbiter(e: Env, arbiter: Address) {
+        dispute::set_arbiter(&e, &arbiter)
+    }
+
+    fn raise_dispute(e: Env, caller: Address, escrow_id: u32) {
+        dispute::raise_dispute(&e, &caller, escrow_id)
+    }
+
+    fn resolve_dispute(e: Env, resolver: Address, escrow_id: u32, winner: Address) {
+        dispute::resolve_dispute(&e, &resolver, escrow_id, &winner)
+    }
+
     fn get_recurring_history(e: Env, recurring_id: u32) -> Vec<RecurringPayment> {
         recurring::get_recurring_history(e, recurring_id)
+    }
+
     fn get_escrows_batch(e: Env, escrow_ids: Vec<u32>) -> Vec<Option<escrow::EscrowRecord>> {
         escrow::get_escrows_batch(e, escrow_ids)
     }
@@ -222,7 +240,7 @@ impl VeriTixPayTrait for VeriTixPay {
         require_positive_amount(total_amount);
         
         assert!(organizer_bps + artist_bps < 10_000, "invalid basis points");
-        let platform_bps = 10_000 - organizer_bps - artist_bps;
+        let _platform_bps = 10_000 - organizer_bps - artist_bps;
         let organizer_amt = total_amount * organizer_bps as i128 / 10_000;
         let artist_amt = total_amount * artist_bps as i128 / 10_000;
         let platform_amt = total_amount - organizer_amt - artist_amt;
@@ -252,10 +270,58 @@ impl VeriTixPayTrait for VeriTixPay {
         allowance::create_allowance(&e, &from, &spender, amount, expiration_ledger);
     }
 
-    fn transfer_from(e: Env, spender: Address, from: Address, to: Address, amount: i128) {
+    fn transfer_from(e: Env, spender: Address, from: Address, _to: Address, amount: i128) {
         spender.require_auth();
         require_positive_amount(amount);
         allowance::spend_allowance(&e, &from, &spender, amount);
         // Implement the actual token transfer logic here
+    }
+
+    // ── #451: Admin ownership ────────────────────────────────────────────────
+
+    fn transfer_ownership(e: Env, new_admin: Address) {
+        admin::transfer_ownership(&e, &new_admin)
+    }
+
+    fn accept_admin(e: Env, new_admin: Address) {
+        admin::accept_admin(&e, &new_admin)
+    }
+
+    fn admin_active_after_ledger(e: Env) -> u32 {
+        admin::admin_active_after_ledger(&e)
+    }
+
+    // ── #452: Depositor escrowed value ───────────────────────────────────────
+
+    fn escrowed_value_for_depositor(e: Env, depositor: Address) -> i128 {
+        escrow::escrowed_value_for_depositor(&e, &depositor)
+    }
+
+    // ── #453: Resolver stats ─────────────────────────────────────────────────
+
+    fn resolver_stats(e: Env, resolver: Address) -> ResolverStats {
+        dispute::get_resolver_stats(&e, &resolver)
+    }
+
+    // ── #454: Protocol fee stats ─────────────────────────────────────────────
+
+    fn protocol_fee_stats(e: Env) -> (u32, Address, i128) {
+        let fee_bps: u32 = e.storage().persistent().get(&DataKey::FeeBps).unwrap_or(0);
+        let treasury: Address = e
+            .storage()
+            .persistent()
+            .get(&DataKey::TreasuryAddress)
+            .unwrap_or_else(|| {
+                e.storage()
+                    .persistent()
+                    .get(&DataKey::Admin)
+                    .expect("admin not set")
+            });
+        let total_collected: i128 = e
+            .storage()
+            .persistent()
+            .get(&DataKey::TotalFeesCollected)
+            .unwrap_or(0);
+        (fee_bps, treasury, total_collected)
     }
 }
