@@ -451,6 +451,24 @@ fn test_open_dispute_past_expiry_panics() {
 }
 
 #[test]
+fn test_expire_on_exact_expiry_ledger_succeeds() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let resolver = Address::generate(&e);
+    let (depositor, _beneficiary, escrow_id) = setup_escrow(&e, &contract_id);
+
+    e.as_contract(&contract_id, || {
+        let expiry = e.ledger().sequence() + 100;
+        let dispute_id = open_dispute(&e, depositor.clone(), escrow_id, resolver.clone(), Bytes::new(&e), expiry);
+        e.ledger().with_mut(|l| l.sequence_number = expiry);
+        expire_dispute(&e, dispute_id);
+        let record = get_dispute(&e, dispute_id);
+        assert_eq!(record.status, DisputeStatus::Expired);
+        assert_eq!(read_balance(&e, depositor.clone()), 1_000);
+    });
+}
+
+#[test]
 fn test_expire_dispute_auto_resolves_for_depositor() {
     let e = setup_env();
     let contract_id = e.register_contract(None, VeritixToken);
@@ -465,6 +483,21 @@ fn test_expire_dispute_auto_resolves_for_depositor() {
         let record = get_dispute(&e, dispute_id);
         assert_eq!(record.status, DisputeStatus::Expired);
         assert_eq!(read_balance(&e, depositor.clone()), 1_000);
+    });
+}
+
+#[test]
+#[should_panic(expected = "NotExpired")]
+fn test_expire_one_ledger_before_panics() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let resolver = Address::generate(&e);
+    let (depositor, _beneficiary, escrow_id) = setup_escrow(&e, &contract_id);
+
+    e.as_contract(&contract_id, || {
+        let expiry = e.ledger().sequence() + 1;
+        let dispute_id = open_dispute(&e, depositor.clone(), escrow_id, resolver.clone(), Bytes::new(&e), expiry);
+        expire_dispute(&e, dispute_id);
     });
 }
 

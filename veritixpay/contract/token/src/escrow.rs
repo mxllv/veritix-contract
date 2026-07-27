@@ -142,7 +142,7 @@ pub fn try_refund_escrow(e: &Env, caller: Address, escrow_id: u32) -> Result<(),
 
     // Block refund if an active dispute exists — the resolver must settle first.
     if e.storage().persistent().has(&DataKey::EscrowDispute(escrow_id)) {
-        panic!("DisputeOpen: cannot refund while a dispute is active — wait for resolution");
+        panic!("DisputeOpen: cannot refund while an active dispute is pending resolution");
     }
 
     // Authorization: only the original depositor can refund, unless the escrow has expired
