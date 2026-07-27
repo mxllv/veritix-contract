@@ -1,8 +1,9 @@
 use soroban_sdk::{Address, Env};
 use crate::storage_types::DataKey;
+use crate::admin;
 
 pub fn freeze_account(env: &Env, admin: &Address, account_id: &Address) {
-    // prevent admin from freezing themselves
+    admin::check_admin(env, admin);
     let stored_admin: Address = env.storage().persistent().get(&DataKey::Admin).expect("admin not set");
     if account_id == &stored_admin {
         panic!("InvalidFreeze: cannot freeze the admin address");
