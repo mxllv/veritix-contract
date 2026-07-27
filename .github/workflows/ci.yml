@@ -5,13 +5,36 @@ on:
     branches: [main]
 
 jobs:
+  changelog-check:
+    name: CHANGELOG updated
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check CHANGELOG.md was updated
+        run: |
+          # Require CHANGELOG.md to be touched whenever src/ is modified.
+          SRC_CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -E '^(src/|veritixpay/contract/token/src/)' | wc -l || true)
+          CHANGELOG_CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -E '^CHANGELOG\.md$' | wc -l || true)
+
+          if [ "$SRC_CHANGED" -gt "0" ] && [ "$CHANGELOG_CHANGED" -eq "0" ]; then
+            echo "❌ This PR modifies src/ but CHANGELOG.md was not updated."
+            echo ""
+            echo "Please add an entry under [Unreleased] in CHANGELOG.md describing your change."
+            echo "See https://keepachangelog.com for format guidance."
+            exit 1
+          fi
+          echo "✅ CHANGELOG check passed (src changed: $SRC_CHANGED, changelog changed: $CHANGELOG_CHANGED)"
+
   contract-ci:
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: veritixpay/contract/token
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown,wasm32v1-none
