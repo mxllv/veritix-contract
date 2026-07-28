@@ -10,6 +10,9 @@ pub struct RecurringRecord {
     pub amount: i128,
     pub interval: u32,
     pub last_charged_ledger: u32,
+    pub active: bool,
+    pub max_executions: u32,
+    pub execution_count: u32,
 }
 
 pub fn setup_recurring(
