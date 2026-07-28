@@ -227,6 +227,10 @@ pub fn release_escrow(e: Env, caller: Address, escrow_id: u32) {
         token_client.transfer(&e.current_contract_address(), &record.beneficiary, &to_beneficiary);
     }
 
+    // Subtract the released amount from the total value locked counter
+    let current_locked: i128 = e.storage().persistent().get(&DataKey::EscrowValueLocked).unwrap_or(0);
+    e.storage().persistent().set(&DataKey::EscrowValueLocked, &(current_locked - remaining));
+
     // #181: emit escrow_released event with memo for indexers
     e.events().publish(
         (
@@ -273,6 +277,10 @@ pub fn release_partial_escrow(e: Env, caller: Address, escrow_id: u32, amount: i
 
     let token_client = token::Client::new(&e, &record.token);
     token_client.transfer(&e.current_contract_address(), &record.beneficiary, &amount);
+
+    // Subtract the partially released amount from the total value locked counter
+    let current_locked: i128 = e.storage().persistent().get(&DataKey::EscrowValueLocked).unwrap_or(0);
+    e.storage().persistent().set(&DataKey::EscrowValueLocked, &(current_locked - amount));
 }
 
 /// Refund — returns original locked amount minus what was already partially released.
