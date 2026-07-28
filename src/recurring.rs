@@ -105,3 +105,10 @@ pub fn get_recurring_history(e: Env, recurring_id: u32) -> Vec<RecurringPayment>
         .get(&DataKey::RecurringHistory(recurring_id))
         .unwrap_or(Vec::new(&e))
 }
+
+   let token_client = soroban_sdk::token::Client::new(&e, &record.token);
+    token_client.transfer(
+        &e.current_contract_address(),
+        &record.depositor,
+        &record.total_amount,
+    );
