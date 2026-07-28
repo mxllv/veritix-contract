@@ -22,6 +22,7 @@ pub fn setup_recurring(
     token_addr: Address,
     amount: i128,
     interval: u32,
+    max_executions: u32,
 ) -> u32 {
     // #426: amount must be positive — first check
     assert!(amount > 0, "amount must be positive");
@@ -39,6 +40,9 @@ pub fn setup_recurring(
         amount,
         interval,
         last_charged_ledger: e.ledger().sequence(),
+        active: true,
+        max_executions,
+        execution_count: 0,
     };
     e.storage()
         .persistent()
