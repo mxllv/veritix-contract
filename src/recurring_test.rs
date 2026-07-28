@@ -32,7 +32,7 @@ fn test_recurring_history_grows() {
 #[test]
 #[should_panic(expected = "recurring is not active")]
 fn test_max_executions_deactivates() {
-    use soroban_sdk::Address;
+    use soroban_sdk::{Address, token};
     use crate::recurring::{setup_recurring, execute_recurring};
     use crate::storage_types::DataKey;
 
@@ -41,7 +41,13 @@ fn test_max_executions_deactivates() {
 
     let payer = Address::generate(&e);
     let payee = Address::generate(&e);
-    let token = Address::generate(&e);
+    // Create a test token
+    let token = e.register_stellar_asset_contract(Address::generate(&e));
+    let token_client = token::Client::new(&e, &token);
+    
+    // Mint some tokens to the payer so transfers work
+    token_client.mint(&payer, &1000);
+    
     let amount = 100;
     let interval = 100; // 100 ledgers between executions
     let max_executions = 3;
@@ -65,32 +71,28 @@ fn test_max_executions_deactivates() {
 
     // 1st execution
     e.ledger().with_mut(|l| l.sequence_number = e.ledger().sequence() + interval);
-    // We need to mock the token transfer - in real tests, the token client would handle this
-    // For this test, we'll just call execute and check the state changes
-    // We'll skip the actual transfer since we can't mock it easily in isolation
-    // Instead, we'll manually trigger the state changes that execute_recurring would do
-    record.execution_count += 1;
-    record.last_charged_ledger = e.ledger().sequence();
-    e.storage().persistent().set(&DataKey::Recurring(recurring_id), &record);
+    execute_recurring(&e, recurring_id);
+    
+    // Check state after 1st execution
+    record = e.storage().persistent().get(&DataKey::Recurring(recurring_id)).unwrap();
     assert!(record.active);
     assert_eq!(record.execution_count, 1);
 
     // 2nd execution
     e.ledger().with_mut(|l| l.sequence_number = e.ledger().sequence() + interval);
-    record.execution_count += 1;
-    record.last_charged_ledger = e.ledger().sequence();
-    e.storage().persistent().set(&DataKey::Recurring(recurring_id), &record);
+    execute_recurring(&e, recurring_id);
+    
+    // Check state after 2nd execution
+    record = e.storage().persistent().get(&DataKey::Recurring(recurring_id)).unwrap();
     assert!(record.active);
     assert_eq!(record.execution_count, 2);
 
     // 3rd execution - this should deactivate the record
     e.ledger().with_mut(|l| l.sequence_number = e.ledger().sequence() + interval);
-    record.execution_count += 1;
-    if record.max_executions > 0 && record.execution_count >= record.max_executions {
-        record.active = false;
-    }
-    record.last_charged_ledger = e.ledger().sequence();
-    e.storage().persistent().set(&DataKey::Recurring(recurring_id), &record);
+    execute_recurring(&e, recurring_id);
+    
+    // Check state after 3rd execution - should be inactive
+    record = e.storage().persistent().get(&DataKey::Recurring(recurring_id)).unwrap();
     assert!(!record.active);
     assert_eq!(record.execution_count, 3);
 
