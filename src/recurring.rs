@@ -10,6 +10,9 @@ pub struct RecurringRecord {
     pub amount: i128,
     pub interval: u32,
     pub last_charged_ledger: u32,
+    pub active: bool,
+    pub max_executions: u32,
+    pub execution_count: u32,
 }
 
 pub fn setup_recurring(
@@ -19,6 +22,7 @@ pub fn setup_recurring(
     token_addr: Address,
     amount: i128,
     interval: u32,
+    max_executions: u32,
 ) -> u32 {
     // #426: amount must be positive — first check
     assert!(amount > 0, "amount must be positive");
@@ -36,6 +40,9 @@ pub fn setup_recurring(
         amount,
         interval,
         last_charged_ledger: e.ledger().sequence(),
+        active: true,
+        max_executions,
+        execution_count: 0,
     };
     e.storage()
         .persistent()
@@ -53,6 +60,9 @@ pub fn execute_recurring(e: &Env, recurring_id: u32) {
         .get(&DataKey::Recurring(recurring_id))
         .expect("recurring not found");
 
+    // Check if the record is active before proceeding
+    assert!(record.active, "recurring is not active");
+
     // #435: due-date check is FIRST — cheapest possible early exit for griefing protection
     let next_due = record
         .last_charged_ledger
@@ -65,6 +75,12 @@ pub fn execute_recurring(e: &Env, recurring_id: u32) {
 
     // Anchor schedule to original baseline (not current ledger — prevents drift)
     record.last_charged_ledger = next_due;
+    // Increment execution count after successful transfer
+    record.execution_count += 1;
+    // If we've reached max executions, deactivate the record
+    if record.max_executions > 0 && record.execution_count >= record.max_executions {
+        record.active = false;
+    }
     e.storage()
         .persistent()
         .set(&DataKey::Recurring(recurring_id), &record);

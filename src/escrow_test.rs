@@ -84,6 +84,64 @@ fn test_escrowed_total_tracks_active_amounts() {
 }
 
 #[test]
+fn test_escrow_stats_returns_correct_total_value_locked() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
+
+    // Initial state should have 0 locked
+    let initial_stats = t.client.escrow_stats();
+    assert_eq!(initial_stats.total_value_locked, 0);
+
+    // Create first escrow
+    let first = t.client.create_escrow(
+        &t.depositor, &t.beneficiary, &t.token, &1_000, &expiry, &empty_memo(&t.e),
+    );
+    let stats_after_first = t.client.escrow_stats();
+    assert_eq!(stats_after_first.total_value_locked, 1_000);
+
+    // Create second escrow
+    let second = t.client.create_escrow(
+        &t.depositor, &t.beneficiary, &t.token, &500, &expiry, &empty_memo(&t.e),
+    );
+    let stats_after_second = t.client.escrow_stats();
+    assert_eq!(stats_after_second.total_value_locked, 1_500);
+
+    // Release first escrow
+    t.client.release_escrow(&t.depositor, &first);
+    let stats_after_release = t.client.escrow_stats();
+    assert_eq!(stats_after_release.total_value_locked, 500);
+
+    // Refund second escrow
+    t.client.refund_escrow(&t.depositor, &second);
+    let stats_after_refund = t.client.escrow_stats();
+    assert_eq!(stats_after_refund.total_value_locked, 0);
+}
+
+#[test]
+fn test_partial_release_updates_total_locked_correctly() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
+
+    // Create an escrow with 1000 tokens
+    let escrow_id = t.client.create_escrow(
+        &t.depositor, &t.beneficiary, &t.token, &1_000, &expiry, &empty_memo(&t.e),
+    );
+    assert_eq!(t.client.escrow_stats().total_value_locked, 1000);
+
+    // Partially release 300 tokens
+    t.client.release_partial_escrow(&t.beneficiary, &escrow_id, &300);
+    assert_eq!(t.client.escrow_stats().total_value_locked, 700);
+
+    // Partially release another 400 tokens
+    t.client.release_partial_escrow(&t.beneficiary, &escrow_id, &400);
+    assert_eq!(t.client.escrow_stats().total_value_locked, 300);
+
+    // Release the remaining 300 tokens
+    t.client.release_partial_escrow(&t.beneficiary, &escrow_id, &300);
+    assert_eq!(t.client.escrow_stats().total_value_locked, 0);
+}
+
+#[test]
 fn test_beneficiary_index_accumulates() {
     let t = setup();
     let expiry = t.e.ledger().sequence() + 1000;
@@ -383,16 +441,7 @@ fn test_create_escrow_event_with_empty_memo() {
     assert_eq!(list.get(0).unwrap(), id);
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::storage_types::MAX_ESCROW_AMOUNT;
 
-    #[test]
-    fn test_max_escrow_amount_constant() {
-        assert!(MAX_ESCROW_AMOUNT > 0);
-        assert_eq!(MAX_ESCROW_AMOUNT, i128::MAX / 100);
-    }
-}
 
 #[cfg(test)]
 mod lien_tests {

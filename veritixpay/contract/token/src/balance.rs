@@ -105,6 +105,21 @@ pub fn read_max_supply(e: &Env) -> i128 {
     e.storage().instance().get(&DataKey::MaxSupply).unwrap_or(0)
 }
 
+pub fn set_max_supply(e: &Env, new_max: i128) {
+    let current_supply = read_total_supply(e);
+    if new_max < current_supply {
+        panic!("Cannot set max supply below current total supply");
+    }
+    
+    let current_max = read_max_supply(e);
+    if current_max > 0 && new_max > current_max {
+        panic!("CannotRaiseMaxSupply");
+    }
+    
+    bump_instance(e);
+    e.storage().instance().set(&DataKey::MaxSupply, &new_max);
+}
+
 pub fn increase_supply(e: &Env, amount: i128) {
     let supply = read_total_supply(e);
     let new_supply = supply.checked_add(amount).expect("supply overflow");

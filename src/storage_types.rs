@@ -1,5 +1,3 @@
-pub const MAX_ESCROW_AMOUNT: i128 = i128::MAX / 100;
-
 use soroban_sdk::{contracttype, Address};
 
 #[contracttype]
@@ -9,6 +7,7 @@ pub enum DataKey {
     AdminActiveAfter,
     ProposedAdmin,
     EscrowCount,
+    EscrowValueLocked,
     Escrow(u32),
     DepositorEscrows(Address),
     BeneficiaryEscrows(Address),
