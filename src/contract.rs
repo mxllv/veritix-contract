@@ -34,6 +34,16 @@ pub trait VeriTixPayTrait {
     fn resolve_dispute(e: Env, resolver: Address, escrow_id: u32, winner: Address);
 
     // ── Recurring Payments ────────────────────────────────────────────────────
+    fn setup_recurring(
+        e: Env,
+        payer: Address,
+        payee: Address,
+        token: Address,
+        amount: i128,
+        interval: u32,
+        max_executions: u32,
+    ) -> u32;
+    fn execute_recurring(e: Env, recurring_id: u32);
     fn get_recurring_history(e: Env, recurring_id: u32) -> Vec<RecurringPayment>;
     fn get_escrows_batch(e: Env, escrow_ids: Vec<u32>) -> Vec<Option<escrow::EscrowRecord>>;
     fn get_escrow_age(e: Env, escrow_id: u32) -> u32;
