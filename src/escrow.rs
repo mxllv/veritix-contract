@@ -20,6 +20,12 @@ pub struct EscrowRecord {
     pub created_at_ledger: u32,
 }
 
+#[contracttype]
+#[derive(Clone)]
+pub struct EscrowStats {
+    pub total_value_locked: i128,
+}
+
 // Anti-spam configuration threshold (5 minutes cooldown window)
 const ESCROW_COOLDOWN_SECONDS: u64 = 300;
 
