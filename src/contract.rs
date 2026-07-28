@@ -180,6 +180,22 @@ impl VeriTixPayTrait for VeriTixPay {
         dispute::resolve_dispute(&e, &resolver, escrow_id, &winner)
     }
 
+    fn setup_recurring(
+        e: Env,
+        payer: Address,
+        payee: Address,
+        token: Address,
+        amount: i128,
+        interval: u32,
+        max_executions: u32,
+    ) -> u32 {
+        recurring::setup_recurring(&e, payer, payee, token, amount, interval, max_executions)
+    }
+
+    fn execute_recurring(e: Env, recurring_id: u32) {
+        recurring::execute_recurring(&e, recurring_id)
+    }
+
     fn get_recurring_history(e: Env, recurring_id: u32) -> Vec<RecurringPayment> {
         recurring::get_recurring_history(e, recurring_id)
     }
