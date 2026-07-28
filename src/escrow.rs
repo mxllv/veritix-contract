@@ -134,6 +134,9 @@ pub fn create_escrow(
 
     // Update state tracking counters and rate limit timestamps cleanly
     e.storage().persistent().set(&DataKey::EscrowCount, &(id + 1));
+    // Add the new escrow amount to the total value locked counter
+    let current_locked: i128 = e.storage().persistent().get(&DataKey::EscrowValueLocked).unwrap_or(0);
+    e.storage().persistent().set(&DataKey::EscrowValueLocked, &(current_locked + amount));
     e.storage().persistent().set(&rate_limit_key, &current_time);
 
     // #181: emit escrow_created event with memo for indexers
