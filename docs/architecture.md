@@ -404,3 +404,32 @@ The [veritix-web](https://github.com/Lead-Studios/veritix-web) frontend:
 
 5. **Batch operations** — Batch mint, transfer, freeze, and unfreeze operations
    support up to 50 recipients, reducing transaction costs for bulk operations.
+
+---
+
+## End-to-End Product Flow
+
+How a real VeriTix ticket purchase moves through every module, closes #562:
+
+1. **Purchase (Escrow module)** — A buyer calls `create_escrow`, locking funds
+   for a ticket in the contract's balance until the event outcome is known.
+2. **Split payout setup (Splitter module)** — If the ticket price is shared
+   between the organiser and a platform fee, the split record is distributed
+   using a checks-effects-interactions pattern: `distributed` is flipped
+   before any external transfer, blocking re-entrant double-spends.
+3. **Recurring add-ons (Recurring module)** — Season-pass or subscription
+   tickets use `setup_recurring` so future charges are pre-authorised and can
+   be pulled by anyone via `execute_recurring` on schedule.
+4. **Dispute path (Dispute module)** — If the buyer disputes the ticket (event
+   cancelled, fraud, etc.), `open_dispute` freezes the escrow's normal release
+   path until the arbiter calls `resolve_dispute`.
+5. **Settlement (Escrow → Splitter)** — On a clean outcome, `release_escrow`
+   pays the beneficiary; if a split was configured, dust from BPS rounding
+   goes to the last recipient so the total always distributes exactly.
+6. **Admin oversight (Admin module)** — Contract admin rotation uses the
+   two-step `transfer_ownership` / `accept_admin` flow so a compromised or
+   mistyped admin address can never take effect unilaterally.
+
+Every step above emits an event (see `docs/events-reference.md`) so the
+NestJS backend can reconstruct ticket state without polling contract storage
+directly.

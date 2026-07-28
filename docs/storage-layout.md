@@ -49,6 +49,34 @@
   - Owner module: `dispute`.
   - TTL: persistent TTL constants.
 
+## Additional DataKey Variants (added since the table above, closes #561)
+
+The enum has grown to 35 variants; the newer ones aren't yet covered above.
+
+| Variant | Tier | Owner module |
+| --- | --- | --- |
+| `MaxSupply` | instance | `metadata` |
+| `HolderSet` | persistent | `balance` (indexes all holders) |
+| `SnapshotCount` | instance | `snapshot` |
+| `Snapshot(u32)` | persistent | `snapshot` |
+| `PayerRecurrings(Address)` | persistent | `recurring` (index over `Recurring`) |
+| `SplitCount` | instance | `splitter` |
+| `Split(u32)` | persistent | `splitter` |
+| `DisputeCount` | instance | `dispute` |
+| `EscrowDisputeHistory(u32)` | persistent | `dispute` |
+| `ResolverDisputes(Address)` | persistent | `dispute` (index) |
+| `OpenDisputes` | persistent | `dispute` (index of active ids) |
+| `FrozenAccounts` | persistent | `freeze` (index over `Freeze`) |
+| `OwnerAllowances(Address)` | persistent | `allowance` (index) |
+| `Paused` | instance | `pause` |
+| `ClawbackCoSigner` | instance | `admin` |
+| `PendingAdmin` | instance | `admin` |
+| `ExpiryWarned(u32)` | persistent | `escrow` |
+| `Nonce(Address)` | persistent | `permit` |
+| `DistributedCount` | instance | `batch`/`dividend` |
+| `CancelledCount` | instance | `batch`/`dividend` |
+| `TotalDistributedValue` | instance | `batch`/`dividend` |
+
 ## TTL Policy Summary
 - Instance keys: bumped via `bump_instance` and counter mutation helper.
 - Persistent keys: bumped on read/write using module-specific constants or shared persistent defaults.
