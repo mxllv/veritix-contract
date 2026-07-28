@@ -92,6 +92,72 @@ fn write_owner_allowance_index(e: &Env, from: &Address, spender: &Address, add: 
     e.storage().persistent().extend_ttl(&owner_key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
 }
 
+
+#[test]
+#[should_panic(expected = "NotFrozen")]
+fn test_unfreeze_not_frozen_panics() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let target = Address::generate(&env);
+
+    unfreeze_account(&env, admin, target);
+}
+
+#[test]
+#[should_panic(expected = "InvalidFreeze")]
+fn test_freeze_admin_address_panics() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+
+    // Store admin in persistent storage so the guard can read it
+    env.storage().persistent().set(&crate::storage_types::DataKey::Admin, &admin);
+    freeze_account(&env, admin.clone(), admin);
+}
+
+#[test]
+#[should_panic]
+fn test_frozen_account_cannot_spend_balance() {
+    let env = Env::default();
+    let target = Address::generate(&env);
+    let admin = Address::generate(&env);
+
+    freeze_account(&env, admin, target.clone());
+    spend_balance(&env, target, 100);
+}
+
+#[test]
+#[should_panic(expected = "NotFrozen")]
+fn test_unfreeze_not_frozen_panics() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let target = Address::generate(&env);
+
+    unfreeze_account(&env, admin, target);
+}
+
+#[test]
+#[should_panic(expected = "InvalidFreeze")]
+fn test_freeze_admin_address_panics() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+
+    // Store admin in persistent storage so the guard can read it
+    env.storage().persistent().set(&crate::storage_types::DataKey::Admin, &admin);
+    freeze_account(&env, admin.clone(), admin);
+}
+
+#[test]
+#[should_panic]
+fn test_frozen_account_cannot_spend_balance() {
+    let env = Env::default();
+    let target = Address::generate(&env);
+    let admin = Address::generate(&env);
+
+    freeze_account(&env, admin, target.clone());
+    spend_balance(&env, target, 100);
+}
+
+
 pub fn write_allowance(
     e: &Env,
     from: Address,
@@ -163,6 +229,40 @@ pub fn write_allowance(
     }
 }
 
+
+#[test]
+#[should_panic(expected = "NotFrozen")]
+fn test_unfreeze_not_frozen_panics() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let target = Address::generate(&env);
+
+    unfreeze_account(&env, admin, target);
+}
+
+#[test]
+#[should_panic(expected = "InvalidFreeze")]
+fn test_freeze_admin_address_panics() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+
+    // Store admin in persistent storage so the guard can read it
+    env.storage().persistent().set(&crate::storage_types::DataKey::Admin, &admin);
+    freeze_account(&env, admin.clone(), admin);
+}
+
+#[test]
+#[should_panic]
+fn test_frozen_account_cannot_spend_balance() {
+    let env = Env::default();
+    let target = Address::generate(&env);
+    let admin = Address::generate(&env);
+
+    freeze_account(&env, admin, target.clone());
+    spend_balance(&env, target, 100);
+}
+
+
 // Verifies that open_dispute stores a record with correct escrow_id, claimant,
 // resolver, and initial Open status. If this fails, the dispute creation flow
 // is broken and no disputes can be filed.
@@ -182,6 +282,40 @@ fn test_open_dispute_stores_record() {
         assert_eq!(record.status, DisputeStatus::Open);
     });
 }
+
+
+#[test]
+#[should_panic(expected = "NotFrozen")]
+fn test_unfreeze_not_frozen_panics() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let target = Address::generate(&env);
+
+    unfreeze_account(&env, admin, target);
+}
+
+#[test]
+#[should_panic(expected = "InvalidFreeze")]
+fn test_freeze_admin_address_panics() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+
+    // Store admin in persistent storage so the guard can read it
+    env.storage().persistent().set(&crate::storage_types::DataKey::Admin, &admin);
+    freeze_account(&env, admin.clone(), admin);
+}
+
+#[test]
+#[should_panic]
+fn test_frozen_account_cannot_spend_balance() {
+    let env = Env::default();
+    let target = Address::generate(&env);
+    let admin = Address::generate(&env);
+
+    freeze_account(&env, admin, target.clone());
+    spend_balance(&env, target, 100);
+}
+
 
 // Happy-path: resolves dispute in favour of the beneficiary, verifying that
 // the escrow is released and funds are transferred to the beneficiary.

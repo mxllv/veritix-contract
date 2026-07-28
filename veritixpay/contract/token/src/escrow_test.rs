@@ -159,12 +159,139 @@ pub fn write_allowance(
     }
 }
 
+
+
+
+pub fn read_allowance(e: &Env, from: Address, spender: Address) -> AllowanceValue {
+    let key = DataKey::Allowance(AllowanceDataKey {
+        from: from.clone(),
+        spender: spender.clone(),
+    });
+
+    if let Some(allowance) = e
+        .storage()
+        .persistent()
+        .get::<DataKey, AllowanceValue>(&key)
+    {
+        // Equal-to-current-ledger approvals are still valid for the current ledger.
+        // They become expired only once the sequence advances past expiration_ledger.
+        if allowance.expiration_ledger < e.ledger().sequence() {
+            // Prune expired entry from storage
+            e.storage().persistent().remove(&key);
+            AllowanceValue {
+                amount: 0,
+                expiration_ledger: allowance.expiration_ledger,
+            }
+        } else {
+            // Extend TTL on active allowance read
+            e.storage().persistent().extend_ttl(
+                &key,
+                ALLOWANCE_LIFETIME_THRESHOLD,
+                ALLOWANCE_BUMP_AMOUNT,
+            );
+            allowance
+        }
+    } else {
+        AllowanceValue {
+            amount: 0,
+            expiration_ledger: 0,
+        }
+    }
+}
+
+fn write_owner_allowance_index(e: &Env, from: &Address, spender: &Address, add: bool) {
+    let owner_key = DataKey::OwnerAllowances(from.clone());
+    let mut spenders: Vec<Address> = e.storage().persistent().get(&owner_key).unwrap_or_else(|| Vec::new(e));
+    if add {
+        let mut exists = false;
+        for i in 0..spenders.len() {
+            if spenders.get(i).unwrap() == *spender {
+                exists = true;
+                break;
+            }
+        }
+        if !exists {
+            spenders.push_back(spender.clone());
+        }
+    } else {
+        let mut updated = Vec::new(e);
+        for i in 0..spenders.len() {
+            let addr = spenders.get(i).unwrap();
+            if addr != *spender {
+                updated.push_back(addr);
+            }
+        }
+        spenders = updated;
+    }
+    e.storage().persistent().set(&owner_key, &spenders);
+    e.storage().persistent().extend_ttl(&owner_key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+}
+
+pub fn write_allowance(
+    e: &Env,
+    from: Address,
+    spender: Address,
+    amount: i128,
+    expiration_ledger: u32,
+) {
+    require_non_negative_amount(amount);
+    require_current_or_future_ledger(e.ledger().sequence(), expiration_ledger);
+
+    let key = DataKey::Allowance(AllowanceDataKey {
+        from: from.clone(),
+        spender: spender.clone(),
+    });
+
+
 fn assert_supply_matches_balances(e: &Env, addresses: &[Address]) {
     let tracked_sum = addresses
         .iter()
         .fold(0i128, |sum, address| sum + read_balance(e, address.clone()));
     assert_eq!(read_total_supply(e), tracked_sum);
 }
+
+use crate::balance::{
+        decrease_supply, increase_supply, read_balance, read_total_supply, receive_balance,
+        spend_balance,
+    };
+    use crate::contract::VeritixToken;
+
+    fn setup_env() -> (Env, Address) {
+        let e = Env::default();
+        e.mock_all_auths();
+        let contract_id = e.register_contract(None, VeritixToken);
+        (e, contract_id)
+    }
+
+    #[test]
+    fn test_read_balance_returns_zero_for_unknown_address() {
+        let (e, contract_id) = setup_env();
+        let addr = Address::generate(&e);
+        e.as_contract(&contract_id, || {
+            assert_eq!(read_balance(&e, addr), 0);
+        });
+    }
+
+    #[test]
+    fn test_receive_balance_sets_and_reads_correctly() {
+        let (e, contract_id) = setup_env();
+        let addr = Address::generate(&e);
+        e.as_contract(&contract_id, || {
+            receive_balance(&e, addr.clone(), 500);
+            assert_eq!(read_balance(&e, addr), 500);
+        });
+    }
+
+    #[test]
+    fn test_spend_balance_decrements_correctly() {
+        let (e, contract_id) = setup_env();
+        let addr = Address::generate(&e);
+        e.as_contract(&contract_id, || {
+            receive_balance(&e, addr.clone(), 1_000);
+            spend_balance(&e, addr.clone(), 400);
+            assert_eq!(read_balance(&e, addr), 600);
+        });
+    }
 
 // Verifies that create_escrow stores a record with correct id, depositor,
 // beneficiary, amount, and initial state (not released, not refunded).
