@@ -20,6 +20,12 @@ pub struct EscrowRecord {
     pub created_at_ledger: u32,
 }
 
+#[contracttype]
+#[derive(Clone)]
+pub struct EscrowStats {
+    pub total_value_locked: i128,
+}
+
 // Anti-spam configuration threshold (5 minutes cooldown window)
 const ESCROW_COOLDOWN_SECONDS: u64 = 300;
 
@@ -128,6 +134,9 @@ pub fn create_escrow(
 
     // Update state tracking counters and rate limit timestamps cleanly
     e.storage().persistent().set(&DataKey::EscrowCount, &(id + 1));
+    // Add the new escrow amount to the total value locked counter
+    let current_locked: i128 = e.storage().persistent().get(&DataKey::EscrowValueLocked).unwrap_or(0);
+    e.storage().persistent().set(&DataKey::EscrowValueLocked, &(current_locked + amount));
     e.storage().persistent().set(&rate_limit_key, &current_time);
 
     // #181: emit escrow_created event with memo for indexers
@@ -218,6 +227,10 @@ pub fn release_escrow(e: Env, caller: Address, escrow_id: u32) {
         token_client.transfer(&e.current_contract_address(), &record.beneficiary, &to_beneficiary);
     }
 
+    // Subtract the released amount from the total value locked counter
+    let current_locked: i128 = e.storage().persistent().get(&DataKey::EscrowValueLocked).unwrap_or(0);
+    e.storage().persistent().set(&DataKey::EscrowValueLocked, &(current_locked - remaining));
+
     // #181: emit escrow_released event with memo for indexers
     e.events().publish(
         (
@@ -264,6 +277,10 @@ pub fn release_partial_escrow(e: Env, caller: Address, escrow_id: u32, amount: i
 
     let token_client = token::Client::new(&e, &record.token);
     token_client.transfer(&e.current_contract_address(), &record.beneficiary, &amount);
+
+    // Subtract the partially released amount from the total value locked counter
+    let current_locked: i128 = e.storage().persistent().get(&DataKey::EscrowValueLocked).unwrap_or(0);
+    e.storage().persistent().set(&DataKey::EscrowValueLocked, &(current_locked - amount));
 }
 
 /// Refund — returns original locked amount minus what was already partially released.
@@ -291,6 +308,10 @@ pub fn refund_escrow(e: Env, caller: Address, escrow_id: u32) {
         &record.depositor,
         &refundable,
     );
+
+    // Subtract the refunded amount from the total value locked counter
+    let current_locked: i128 = e.storage().persistent().get(&DataKey::EscrowValueLocked).unwrap_or(0);
+    e.storage().persistent().set(&DataKey::EscrowValueLocked, &(current_locked - refundable));
 
     // #181: emit escrow_refunded event with memo for indexers
     e.events().publish(
@@ -342,27 +363,17 @@ pub fn get_escrows_by_beneficiary(e: Env, beneficiary: Address) -> Vec<u32> {
     read_escrow_ids(&e, DataKey::BeneficiaryEscrows(beneficiary))
 }
 
-pub fn get_escrowed_total(e: &Env) -> i128 {
-    let escrow_count: u32 = e
-        .storage()
-        .persistent()
-        .get(&DataKey::EscrowCount)
-        .unwrap_or(0);
-
-    let mut total = 0_i128;
-    for escrow_id in 0..escrow_count {
-        let record: EscrowRecord = e
-            .storage()
-            .persistent()
-            .get(&DataKey::Escrow(escrow_id))
-            .expect("escrow not found");
-
-        if !record.released && !record.refunded {
-            total += record.amount - record.released_amount;
-        }
+pub fn get_escrow_stats(e: &Env) -> EscrowStats {
+    let total_value_locked: i128 = e.storage().persistent().get(&DataKey::EscrowValueLocked).unwrap_or(0);
+    EscrowStats {
+        total_value_locked,
     }
+}
 
-    total
+pub fn get_escrowed_total(e: &Env) -> i128 {
+    // Maintain backwards compatibility
+    let stats = get_escrow_stats(e);
+    stats.total_value_locked
 }
 
 pub fn get_escrows_batch(e: Env, escrow_ids: Vec<u32>) -> Vec<Option<EscrowRecord>> {

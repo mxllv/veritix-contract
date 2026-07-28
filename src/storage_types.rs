@@ -9,6 +9,7 @@ pub enum DataKey {
     AdminActiveAfter,
     ProposedAdmin,
     EscrowCount,
+    EscrowValueLocked,
     Escrow(u32),
     DepositorEscrows(Address),
     BeneficiaryEscrows(Address),

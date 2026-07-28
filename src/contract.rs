@@ -23,6 +23,7 @@ pub trait VeriTixPayTrait {
     fn get_escrows_by_depositor(e: Env, depositor: Address) -> Vec<u32>;
     fn get_escrows_by_beneficiary(e: Env, beneficiary: Address) -> Vec<u32>;
     fn escrowed_total(e: Env) -> i128;
+    fn escrow_stats(e: Env) -> escrow::EscrowStats;
     fn place_lien(e: Env, creditor: Address, escrow_id: u32, lien_amount: i128);
     fn clear_lien(e: Env, caller: Address, escrow_id: u32);
     fn get_escrow(e: Env, escrow_id: u32) -> escrow::EscrowRecord;
@@ -34,6 +35,16 @@ pub trait VeriTixPayTrait {
     fn resolve_dispute(e: Env, resolver: Address, escrow_id: u32, winner: Address);
 
     // ── Recurring Payments ────────────────────────────────────────────────────
+    fn setup_recurring(
+        e: Env,
+        payer: Address,
+        payee: Address,
+        token: Address,
+        amount: i128,
+        interval: u32,
+        max_executions: u32,
+    ) -> u32;
+    fn execute_recurring(e: Env, recurring_id: u32);
     fn get_recurring_history(e: Env, recurring_id: u32) -> Vec<RecurringPayment>;
     fn get_escrows_batch(e: Env, escrow_ids: Vec<u32>) -> Vec<Option<escrow::EscrowRecord>>;
     fn get_escrow_age(e: Env, escrow_id: u32) -> u32;
@@ -142,6 +153,10 @@ impl VeriTixPayTrait for VeriTixPay {
         escrow::get_escrowed_total(&e)
     }
 
+    fn escrow_stats(e: Env) -> escrow::EscrowStats {
+        escrow::get_escrow_stats(&e)
+    }
+
     fn place_lien(e: Env, creditor: Address, escrow_id: u32, lien_amount: i128) {
         escrow::place_lien(e, creditor, escrow_id, lien_amount)
     }
@@ -168,6 +183,22 @@ impl VeriTixPayTrait for VeriTixPay {
 
     fn resolve_dispute(e: Env, resolver: Address, escrow_id: u32, winner: Address) {
         dispute::resolve_dispute(&e, &resolver, escrow_id, &winner)
+    }
+
+    fn setup_recurring(
+        e: Env,
+        payer: Address,
+        payee: Address,
+        token: Address,
+        amount: i128,
+        interval: u32,
+        max_executions: u32,
+    ) -> u32 {
+        recurring::setup_recurring(&e, payer, payee, token, amount, interval, max_executions)
+    }
+
+    fn execute_recurring(e: Env, recurring_id: u32) {
+        recurring::execute_recurring(&e, recurring_id)
     }
 
     fn get_recurring_history(e: Env, recurring_id: u32) -> Vec<RecurringPayment> {
