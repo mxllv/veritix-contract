@@ -301,6 +301,10 @@ pub fn refund_escrow(e: Env, caller: Address, escrow_id: u32) {
         &refundable,
     );
 
+    // Subtract the refunded amount from the total value locked counter
+    let current_locked: i128 = e.storage().persistent().get(&DataKey::EscrowValueLocked).unwrap_or(0);
+    e.storage().persistent().set(&DataKey::EscrowValueLocked, &(current_locked - refundable));
+
     // #181: emit escrow_refunded event with memo for indexers
     e.events().publish(
         (
