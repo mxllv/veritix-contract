@@ -40,6 +40,12 @@ stellar --version
 
 **First-time setup:** Run `make preflight` from the `veritixpay/contract/token/` directory to verify all required tools are installed. This will give you fast, actionable feedback if anything is missing.
 
+**Code quality requirements:** All code must pass:
+- `cargo fmt --all --check` (proper formatting)
+- `cargo clippy --all-targets --all-features -- -D warnings` (no clippy warnings)
+
+These checks are enforced in CI. Run them locally before submitting a PR to avoid delays.
+
 **Pre-commit hooks:** Install the git pre-commit hook to automatically run `cargo fmt` and `cargo clippy` before every commit:
 
 ```bash

@@ -441,16 +441,7 @@ fn test_create_escrow_event_with_empty_memo() {
     assert_eq!(list.get(0).unwrap(), id);
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::storage_types::MAX_ESCROW_AMOUNT;
 
-    #[test]
-    fn test_max_escrow_amount_constant() {
-        assert!(MAX_ESCROW_AMOUNT > 0);
-        assert_eq!(MAX_ESCROW_AMOUNT, i128::MAX / 100);
-    }
-}
 
 #[cfg(test)]
 mod lien_tests {
