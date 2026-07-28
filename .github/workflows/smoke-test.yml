@@ -1,0 +1,25 @@
+name: Testnet Smoke Test
+
+# Closes #558. Runs on push to main only (not PRs) to avoid rate-limiting
+# Friendbot with concurrent contributor runs.
+on:
+  push:
+    branches: [main]
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: veritixpay/contract/token
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
+      - name: Install Stellar CLI
+        run: cargo install stellar-cli --version 22.8.1 --locked
+      - name: Build
+        run: make build
+      - name: Run smoke test
+        run: make -C ../../.. smoke-test
