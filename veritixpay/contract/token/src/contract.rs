@@ -1,4 +1,8 @@
-use crate::admin::{check_admin, has_admin, read_admin, read_clawback_cosigner, read_pending_admin, transfer_admin, write_admin, write_clawback_cosigner};
+use crate::admin::{
+    accept_admin as accept_pending_admin, check_admin, has_admin, propose_admin,
+    read_admin, read_admin_active_after, read_clawback_cosigner, read_pending_admin,
+    transfer_admin, write_admin, write_clawback_cosigner,
+};
 use crate::allowance::{get_allowances_for_spender, read_allowance, revoke_all_allowances, spend_allowance, validate_allowance, write_allowance};
 use crate::balance::{decrease_supply, increase_supply, read_balance, read_max_supply, read_total_supply, receive_balance, spend_balance, set_max_supply};
 use crate::batch::{approve_batch, burn_from_batch, clawback_batch, freeze_batch, transfer_batch_with_memo, unfreeze_batch};
@@ -8,9 +12,10 @@ use crate::dispute::{
     get_open_disputes, open_dispute, resolve_dispute, DisputeRecord,
 };
 use crate::escrow::{
-use crate::escrow::{
     admin_settle_escrow as escrow_admin_settle, create_escrow as escrow_create,
-    escrow_stats as escrow_get_stats, get_escrow as escrow_get, refund_escrow as escrow_refund,
+    escrow_between as escrow_between_fn, escrow_stats as escrow_get_stats,
+    escrowed_value_for_depositor as escrowed_value_for_depositor_fn,
+    get_escrow as escrow_get, refund_escrow as escrow_refund,
     release_escrow as escrow_release, EscrowRecord,
 };
 use crate::freeze::{freeze_account, get_frozen_accounts, is_frozen as read_frozen_status, unfreeze_account};
@@ -19,12 +24,13 @@ use crate::pause::{is_paused, pause, require_not_paused, unpause};
 use crate::recurring::{
     amend_recurring, cancel_recurring, execute_recurring, get_next_execution_ledger,
     get_recurring, get_recurring_by_payer, is_executable, pause_recurring,
-    recurring_count_for_payer, resume_recurring, setup_recurring, RecurringRecord,
+    recurring_count_for_payer, resume_recurring, setup_recurring,
+    transfer_recurring_payer, RecurringRecord,
 };
 use crate::splitter::{
     cancel_split as split_cancel, create_split as split_create, distribute as split_distribute,
-    get_split as split_get, splitter_stats as split_stats, SplitRecord, SplitRecipient,
-    SplitterStats,
+    get_split as split_get, get_splits_for_recipient as split_get_for_recipient,
+    splitter_stats as split_stats, SplitRecord, SplitRecipient, SplitterStats,
 };
 use crate::validation::{require_not_frozen_account, require_positive_amount};
 use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Bytes, Env, String, Vec};
@@ -129,6 +135,12 @@ impl VeritixToken {
     pub fn set_admin(e: Env, new_admin: Address) {
         transfer_admin(&e, new_admin);
     }
+    pub fn propose_admin(e: Env, new_admin: Address) {
+        propose_admin(&e, &new_admin);
+    }
+    pub fn accept_admin(e: Env) {
+        accept_pending_admin(&e);
+    }
     pub fn admin(e: Env) -> Address {
         read_admin(&e)
     }
@@ -140,6 +152,9 @@ impl VeritixToken {
     }
     pub fn get_pending_admin(e: Env) -> Option<Address> {
         read_pending_admin(&e)
+    }
+    pub fn admin_active_after(e: Env) -> Option<u32> {
+        read_admin_active_after(&e)
     }
 
     // --- Pause ---
@@ -489,6 +504,9 @@ impl VeritixToken {
         crate::storage_types::bump_instance(&e);
         escrow_get_stats(&e)
     }
+    pub fn escrowed_value_for_depositor(e: Env, depositor: Address) -> i128 {
+        escrowed_value_for_depositor_fn(&e, depositor)
+    }
 
     // --- Disputes ---
     /// Opens a dispute against an escrow, freezing it until resolved or expired.
@@ -602,6 +620,9 @@ impl VeritixToken {
     pub fn replace_split_recipient(e: Env, sender: Address, split_id: u32, old_recipient: Address, new_recipient: Address) {
         crate::splitter::replace_split_recipient(&e, sender, split_id, old_recipient, new_recipient)
     }
+    pub fn get_splits_for_recipient(e: Env, recipient: Address) -> Vec<u32> {
+        split_get_for_recipient(&e, recipient)
+    }
     pub fn split_count(e: Env) -> u32 {
         crate::storage_types::bump_instance(&e);
         crate::storage_types::read_counter(&e, &crate::storage_types::DataKey::SplitCount)
@@ -669,6 +690,14 @@ impl VeritixToken {
     }
     pub fn amend_recurring(e: Env, caller: Address, recurring_id: u32, new_amount: Option<i128>, new_interval: Option<u32>) {
         amend_recurring(&e, caller, recurring_id, new_amount, new_interval)
+    }
+    pub fn transfer_recurring_payer(
+        e: Env,
+        old_payer: Address,
+        new_payer: Address,
+        recurring_id: u32,
+    ) {
+        transfer_recurring_payer(&e, old_payer, new_payer, recurring_id)
     }
     pub fn get_recurring(e: Env, recurring_id: u32) -> RecurringRecord {
         get_recurring(&e, recurring_id)

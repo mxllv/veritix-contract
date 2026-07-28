@@ -35,6 +35,21 @@ fn append_payer_index(e: &Env, payer: &Address, id: u32) {
     e.storage().persistent().extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
 }
 
+fn remove_payer_index(e: &Env, payer: &Address, id: u32) {
+    let key = DataKey::PayerRecurrings(payer.clone());
+    let ids: Vec<u32> = e.storage().persistent().get(&key).unwrap_or_else(|| vec![e]);
+    let mut updated = Vec::new(e);
+    for current_id in ids.iter() {
+        if current_id != id {
+            updated.push_back(current_id);
+        }
+    }
+    e.storage().persistent().set(&key, &updated);
+    e.storage()
+        .persistent()
+        .extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+}
+
 pub fn setup_recurring(e: &Env, payer: Address, payee: Address, amount: i128, interval: u32) -> u32 {
     require_positive_amount(amount);
     if interval == 0 { panic!("InvalidInterval: interval must be at least 1"); }
@@ -126,6 +141,48 @@ pub fn amend_recurring(e: &Env, caller: Address, recurring_id: u32, new_amount: 
     e.events().publish((symbol_short!("recur_amd"), recurring_id), (record.amount, record.interval));
 }
 
+pub fn transfer_recurring_payer(
+    e: &Env,
+    old_payer: Address,
+    new_payer: Address,
+    recurring_id: u32,
+) {
+    old_payer.require_auth();
+    new_payer.require_auth();
+    if new_payer == old_payer {
+        panic!("new payer must differ from old payer");
+    }
+
+    let key = DataKey::Recurring(recurring_id);
+    let mut record: RecurringRecord = e
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| panic!("recurring record not found"));
+    e.storage()
+        .persistent()
+        .extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+
+    if !record.active {
+        panic!("recurring payment is not active");
+    }
+    if record.payer != old_payer {
+        panic!("unauthorized");
+    }
+
+    record.payer = new_payer.clone();
+    e.storage().persistent().set(&key, &record);
+    e.storage()
+        .persistent()
+        .extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+
+    remove_payer_index(e, &old_payer, recurring_id);
+    append_payer_index(e, &new_payer, recurring_id);
+
+    e.events()
+        .publish((symbol_short!("recur_xfer_p"), recurring_id, new_payer), ());
+}
+
 pub fn get_recurring(e: &Env, recurring_id: u32) -> RecurringRecord {
     let key = DataKey::Recurring(recurring_id);
     let record = e.storage().persistent().get(&key)
@@ -136,7 +193,28 @@ pub fn get_recurring(e: &Env, recurring_id: u32) -> RecurringRecord {
 
 pub fn get_recurring_by_payer(e: &Env, payer: Address) -> Vec<u32> {
     let key = DataKey::PayerRecurrings(payer);
-    e.storage().persistent().get(&key).unwrap_or_else(|| vec![e])
+    let ids = e.storage().persistent().get(&key).unwrap_or_else(|| vec![e]);
+    e.storage()
+        .persistent()
+        .extend_ttl(&key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+    ids
+}
+
+pub fn recurring_count_for_payer(e: &Env, payer: Address) -> u32 {
+    get_recurring_by_payer(e, payer).len()
+}
+
+pub fn get_next_execution_ledger(e: &Env, recurring_id: u32) -> u32 {
+    let record = get_recurring(e, recurring_id);
+    record.last_charged_ledger + record.interval
+}
+
+pub fn is_executable(e: &Env, recurring_id: u32) -> bool {
+    let record = get_recurring(e, recurring_id);
+    record.active
+        && !record.paused
+        && e.ledger().sequence() >= record.last_charged_ledger + record.interval
+        && crate::balance::read_balance(e, record.payer) >= record.amount
 }
 
 /// Batch-cancel up to 20 recurring payments belonging to payer.

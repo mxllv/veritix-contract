@@ -26,6 +26,7 @@ pub const DISPUTE_LIFETIME_THRESHOLD: u32 = PERSISTENT_LIFETIME_THRESHOLD;
 pub const DISPUTE_BUMP_AMOUNT: u32 = PERSISTENT_BUMP_AMOUNT;
 pub const ESCROW_LIFETIME_THRESHOLD: u32 = 7_884_000;
 pub const ESCROW_BUMP_AMOUNT: u32 = 7_900_000;
+pub const ADMIN_ACTIVATION_DELAY: u32 = 17_280;
 pub const WARNING_WINDOW: u32 = 1000;
 
 #[derive(Clone)]
@@ -55,6 +56,7 @@ pub enum DataKey {
     RecurringCount,
     Recurring(u32),
     PayerRecurrings(Address),
+    RecipientSplits(Address),
     SplitCount,
     Split(u32),
     DisputeCount,
@@ -69,6 +71,7 @@ pub enum DataKey {
     Paused,
     ClawbackCoSigner,
     PendingAdmin,
+    AdminActiveAfter,
     ExpiryWarned(u32),
     Nonce(Address),
     DistributedCount,
