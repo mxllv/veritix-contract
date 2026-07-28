@@ -1,5 +1,3 @@
-pub const MAX_ESCROW_AMOUNT: i128 = i128::MAX / 100;
-
 use soroban_sdk::{contracttype, Address};
 
 #[contracttype]
