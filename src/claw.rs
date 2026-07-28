@@ -8,7 +8,7 @@ pub fn claw(e: &Env, arbiter: &Address) {
     e.storage().persistent().set(&DataKey::Arbiter, arbiter);
 }
 
-pub fn claw(e: &Env) -> Address {
+pub fn clawback(e: &Env) -> Address {
     e.storage()
         .persistent()
         .get(&DataKey::Arbiter)
