@@ -193,6 +193,7 @@ pub fn appeal_dispute(e: &Env, caller: Address, dispute_id: u32, appeal_resolver
     dispute.appeal_resolver = Some(appeal_resolver.clone());
     e.storage().persistent().set(&dispute_key, &dispute);
     bump_dispute(e, &dispute_key);
+    append_open_dispute(e, dispute_id);
     e.events().publish((symbol_short!("disp_appl"), dispute_id, caller.clone()), appeal_resolver);
 }
 
@@ -229,6 +230,7 @@ pub fn resolve_appeal(e: &Env, resolver: Address, dispute_id: u32, overturn: boo
     dispute.appeal_resolver = None;
     e.storage().persistent().set(&dispute_key, &dispute);
     bump_dispute(e, &dispute_key);
+    remove_open_dispute(e, dispute_id);
     e.events().publish((symbol_short!("disp_aprl"), dispute_id, resolver), overturn);
 }
 

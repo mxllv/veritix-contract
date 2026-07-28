@@ -836,3 +836,73 @@ fn test_full_dispute_lifecycle_with_appeal() {
         assert!(escrow.refunded);
     });
 }
+
+#[test]
+fn test_resolved_dispute_removed_from_open_disputes() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let resolver = Address::generate(&e);
+    let (depositor, _beneficiary, escrow_id) = setup_escrow(&e, &contract_id);
+
+    e.as_contract(&contract_id, || {
+        let dispute_id = open_dispute(&e, depositor.clone(), escrow_id, resolver.clone(), Bytes::new(&e), e.ledger().sequence() + 1000);
+        let mut open_ids = crate::dispute::get_open_disputes(&e);
+        let mut found = false;
+        for i in 0..open_ids.len() {
+            if open_ids.get(i).unwrap() == dispute_id {
+                found = true;
+                break;
+            }
+        }
+        assert!(found);
+
+        resolve_dispute(&e, resolver.clone(), dispute_id, false);
+
+        open_ids = crate::dispute::get_open_disputes(&e);
+        let mut still_open = false;
+        for i in 0..open_ids.len() {
+            if open_ids.get(i).unwrap() == dispute_id {
+                still_open = true;
+                break;
+            }
+        }
+        assert!(!still_open);
+    });
+}
+
+#[test]
+fn test_appealed_dispute_removed_from_open_disputes_after_appeal_resolution() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let resolver_1 = Address::generate(&e);
+    let resolver_2 = Address::generate(&e);
+    let (depositor, _beneficiary, escrow_id) = setup_escrow(&e, &contract_id);
+
+    e.as_contract(&contract_id, || {
+        let dispute_id = open_dispute(&e, depositor.clone(), escrow_id, resolver_1.clone(), Bytes::new(&e), e.ledger().sequence() + 1000);
+        resolve_dispute(&e, resolver_1.clone(), dispute_id, true);
+        crate::dispute::appeal_dispute(&e, depositor.clone(), dispute_id, resolver_2.clone());
+
+        let open_ids = crate::dispute::get_open_disputes(&e);
+        let mut found = false;
+        for i in 0..open_ids.len() {
+            if open_ids.get(i).unwrap() == dispute_id {
+                found = true;
+                break;
+            }
+        }
+        assert!(found, "appealed dispute should still be tracked as open");
+
+        crate::dispute::resolve_appeal(&e, resolver_2.clone(), dispute_id, true);
+
+        let open_ids = crate::dispute::get_open_disputes(&e);
+        let mut still_open = false;
+        for i in 0..open_ids.len() {
+            if open_ids.get(i).unwrap() == dispute_id {
+                still_open = true;
+                break;
+            }
+        }
+        assert!(!still_open, "dispute must be removed from open disputes after appeal resolution");
+    });
+}
