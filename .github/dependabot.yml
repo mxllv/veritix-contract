@@ -1,19 +1,26 @@
 version: 2
 updates:
+  # Closes #557: labels added so dependency PRs are filterable/triageable.
   - package-ecosystem: cargo
     directory: /veritixpay/contract/token
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    labels:
+      - dependencies
 
   - package-ecosystem: cargo
     directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    labels:
+      - dependencies
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    labels:
+      - dependencies
