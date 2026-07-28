@@ -363,27 +363,17 @@ pub fn get_escrows_by_beneficiary(e: Env, beneficiary: Address) -> Vec<u32> {
     read_escrow_ids(&e, DataKey::BeneficiaryEscrows(beneficiary))
 }
 
-pub fn get_escrowed_total(e: &Env) -> i128 {
-    let escrow_count: u32 = e
-        .storage()
-        .persistent()
-        .get(&DataKey::EscrowCount)
-        .unwrap_or(0);
-
-    let mut total = 0_i128;
-    for escrow_id in 0..escrow_count {
-        let record: EscrowRecord = e
-            .storage()
-            .persistent()
-            .get(&DataKey::Escrow(escrow_id))
-            .expect("escrow not found");
-
-        if !record.released && !record.refunded {
-            total += record.amount - record.released_amount;
-        }
+pub fn get_escrow_stats(e: &Env) -> EscrowStats {
+    let total_value_locked: i128 = e.storage().persistent().get(&DataKey::EscrowValueLocked).unwrap_or(0);
+    EscrowStats {
+        total_value_locked,
     }
+}
 
-    total
+pub fn get_escrowed_total(e: &Env) -> i128 {
+    // Maintain backwards compatibility
+    let stats = get_escrow_stats(e);
+    stats.total_value_locked
 }
 
 pub fn get_escrows_batch(e: Env, escrow_ids: Vec<u32>) -> Vec<Option<EscrowRecord>> {

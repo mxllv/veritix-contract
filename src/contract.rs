@@ -23,6 +23,7 @@ pub trait VeriTixPayTrait {
     fn get_escrows_by_depositor(e: Env, depositor: Address) -> Vec<u32>;
     fn get_escrows_by_beneficiary(e: Env, beneficiary: Address) -> Vec<u32>;
     fn escrowed_total(e: Env) -> i128;
+    fn escrow_stats(e: Env) -> escrow::EscrowStats;
     fn place_lien(e: Env, creditor: Address, escrow_id: u32, lien_amount: i128);
     fn clear_lien(e: Env, caller: Address, escrow_id: u32);
     fn get_escrow(e: Env, escrow_id: u32) -> escrow::EscrowRecord;
@@ -150,6 +151,10 @@ impl VeriTixPayTrait for VeriTixPay {
 
     fn escrowed_total(e: Env) -> i128 {
         escrow::get_escrowed_total(&e)
+    }
+
+    fn escrow_stats(e: Env) -> escrow::EscrowStats {
+        escrow::get_escrow_stats(&e)
     }
 
     fn place_lien(e: Env, creditor: Address, escrow_id: u32, lien_amount: i128) {
