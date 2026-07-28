@@ -57,6 +57,7 @@ pub trait VeriTixPayTrait {
         event_ledger: u32,
         ticket_ref: Bytes,
     ) -> u32;
+    #[allow(clippy::too_many_arguments)]
     fn revenue_split(
         e: Env,
         sender: Address,
