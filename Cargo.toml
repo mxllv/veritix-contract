@@ -9,12 +9,12 @@ crate-type = ["cdylib"]
 doctest = false
 
 [dependencies]
-soroban-sdk = "20.5.0"
+soroban-sdk = "27.0.3"
 zeroize = ">=1.0, <1.9"
 base64ct = ">=1.0, <1.8"
 
 [dev-dependencies]
-soroban-sdk = { version = "20.5.0", features = ["testutils"] }
+soroban-sdk = { version = "27.0.3", features = ["testutils"] }
 
 [features]
 default = []
