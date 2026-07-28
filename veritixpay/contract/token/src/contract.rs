@@ -102,8 +102,28 @@ impl VeritixToken {
         write_admin(&e, &admin);
         e.storage().instance().set(&DataKey::MaxSupply, &max_supply);
         e.events().publish(
-            (symbol_short!("init"), admin),
-            (name, symbol, decimal),
+            (symbol_short!("init_done"), admin),
+            (name, symbol, decimal, max_supply),
+        );
+    }
+
+    /// Updates the max supply cap. Only allows reducing the cap, never increasing it.
+    /// 
+    /// # Arguments
+    /// * `e` - Soroban execution environment.
+    /// * `admin` - Caller; must equal the stored admin address.
+    /// * `new_max` - New max supply value.
+    /// 
+    /// # Panics
+    /// * `"Unauthorized"` - if admin is not the current admin.
+    /// * `"Cannot set max supply below current total supply"` - if new_max is less than the current total supply.
+    /// * `"CannotRaiseMaxSupply"` - if attempting to increase the max supply from its current value.
+    pub fn set_max_supply(e: Env, admin: Address, new_max: i128) {
+        check_admin(&e, &admin);
+        crate::balance::set_max_supply(&e, new_max);
+        e.events().publish(
+            (symbol_short!("max_supply"), admin),
+            (new_max,),
         );
     }
     pub fn set_admin(e: Env, new_admin: Address) {
