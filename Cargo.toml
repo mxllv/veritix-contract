@@ -11,7 +11,7 @@ doctest = false
 [dependencies]
 soroban-sdk = "20.5.0"
 zeroize = ">=1.0, <1.9"
-base64ct = ">=1.0, <1.8"
+base64ct = ">=1.0, <1.9"
 
 [dev-dependencies]
 soroban-sdk = { version = "20.5.0", features = ["testutils"] }
