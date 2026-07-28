@@ -96,6 +96,9 @@ pub fn release_escrow(e: &Env, caller: Address, escrow_id: u32) {
 }
 
 pub fn try_release_escrow(e: &Env, caller: Address, escrow_id: u32) -> Result<(), &'static str> {
+    // Auth: caller must sign the transaction before reading escrow state.
+    caller.require_auth();
+
     let mut escrow = try_get_escrow(e, escrow_id)?;
 
     // Authorization: only the beneficiary can release
@@ -107,9 +110,6 @@ pub fn try_release_escrow(e: &Env, caller: Address, escrow_id: u32) -> Result<()
     if escrow.released || escrow.refunded {
         return Err("already settled");
     }
-
-    // Auth: caller must sign the transaction (after state checks)
-    caller.require_auth();
 
     // Mark as released and persist
     escrow.released = true;

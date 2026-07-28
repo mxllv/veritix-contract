@@ -549,6 +549,27 @@ fn test_release_by_depositor_panics() {
     });
 }
 
+#[test]
+#[should_panic(expected = "missing authorization")]
+fn test_release_escrow_without_auth_panics() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let depositor = Address::generate(&e);
+    let beneficiary = Address::generate(&e);
+    let amount = 1_000i128;
+    let mut escrow_id = 0u32;
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, depositor.clone(), amount);
+        escrow_id = create_escrow(&e, depositor.clone(), beneficiary.clone(), amount, 1000);
+    });
+
+    e.as_contract(&contract_id, || {
+        e.set_auths(&[]);
+        release_escrow(&e, beneficiary.clone(), escrow_id);
+    });
+}
+
 // Ensures that the beneficiary cannot refund a non-expired escrow — only the
 // depositor can trigger a refund before expiry.
 #[test]
