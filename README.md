@@ -90,7 +90,15 @@ The deployed contract address will be written to the repository's deployment out
 
 ### Test Coverage
 
-![Coverage](https://img.shields.io/badge/coverage-available-blue)
+Closes #554: CI enforces a minimum of 80% line coverage via `cargo-llvm-cov`
+(`--fail-under-lines 80`) on every PR — see the badge at the top of this
+README and the `Coverage (min 80%)` step in `.github/workflows/ci.yml`.
+
+### Binary Size
+
+Closes #556: CI fails any PR whose compiled WASM exceeds the Soroban 100KB
+deployment limit — see the `Check WASM size (max 100KB)` step in
+`.github/workflows/ci.yml`, which prints the current size on every build.
 
 ---
 
