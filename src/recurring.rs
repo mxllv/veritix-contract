@@ -183,6 +183,7 @@ pub fn get_recurring_history(e: Env, recurring_id: u32) -> Vec<RecurringPayment>
         &record.total_amount,
     );
 
+<<<<<<< HEAD
 pub fn amend_recurring(e: &Env, caller: &Address, recurring_id: u32, new_amount: i128, new_interval: u32) {
     caller.require_auth();
     assert!(new_amount > 0, "amount must be positive");
@@ -209,3 +210,20 @@ pub fn recurring_ids_for_payee(e: Env, payee: Address) -> soroban_sdk::Vec<u32> 
         .get(&DataKey::PayeeRecurrings(payee))
         .unwrap_or(soroban_sdk::Vec::new(&e))
 }
+=======
+pub fn cancel_recurring_batch(e: &Env, caller: &Address, recurring_ids: Vec<u32>) {
+    caller.require_auth();
+    assert!(recurring_ids.len() <= 20, "batch size cannot exceed 20");
+    for i in 0..recurring_ids.len() {
+        if let Some(id) = recurring_ids.get(i) {
+            let mut record: RecurringRecord = e.storage().persistent()
+                .get(&DataKey::Recurring(id))
+                .expect("recurring not found");
+            assert!(record.payer == *caller, "not the payer for recurring {}", id);
+            assert!(record.active, "recurring {} is not active", id);
+            record.active = false;
+            e.storage().persistent().set(&DataKey::Recurring(id), &record);
+        }
+    }
+}
+>>>>>>> main

@@ -29,7 +29,32 @@ pub enum DataKey {
     TotalFeesCollected,
     SplitCount,
     Split(u32),
+<<<<<<< HEAD
     PayeeRecurrings(Address),
+=======
+<<<<<<< HEAD
+    MediationFeeBps,
+    Holders,
+    DisputeCount(u32),
+    MaxDisputes(u32),
+=======
+<<<<<<< HEAD
+    Version,
+=======
+<<<<<<< HEAD
+    BalanceOf(Address),
+    Authorized(Address),
+=======
+    AllowanceSpenders(Address),
+    WhitelistEnabled,
+    Whitelisted(Address),
+    AutoRelease(u32),
+    DisputeCount(u32),
+    MaxDisputes(u32),
+>>>>>>> main
+>>>>>>> main
+>>>>>>> main
+>>>>>>> main
 }
 
 #[contracttype]

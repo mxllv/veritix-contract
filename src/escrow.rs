@@ -435,3 +435,39 @@ pub fn escrowed_value_for_depositor(e: &Env, depositor: &Address) -> i128 {
 
     total
 }
+
+pub fn trigger_auto_release(e: Env, escrow_id: u32) {
+    let release_ledger: u32 = e.storage().persistent()
+        .get(&DataKey::AutoRelease(escrow_id))
+        .expect("auto release not set for this escrow");
+    assert!(e.ledger().sequence() >= release_ledger, "auto release not yet available");
+    let record = load_record(&e, escrow_id);
+    assert!(!record.released && !record.refunded, "escrow already settled");
+    release_escrow(e, record.depositor, escrow_id)
+}
+
+pub fn escrow_between(e: Env, addr1: Address, addr2: Address) -> u32 {
+    let dep_escrows = get_escrows_by_depositor(e.clone(), addr1.clone());
+    let ben_escrows = get_escrows_by_beneficiary(e.clone(), addr2.clone());
+    for i in 0..dep_escrows.len() {
+        if let Some(id) = dep_escrows.get(i) {
+            for j in 0..ben_escrows.len() {
+                if let Some(ben_id) = ben_escrows.get(j) {
+                    if id == ben_id { return id; }
+                }
+            }
+        }
+    }
+    let dep_escrows2 = get_escrows_by_depositor(e.clone(), addr2);
+    let ben_escrows2 = get_escrows_by_beneficiary(e, addr1);
+    for i in 0..dep_escrows2.len() {
+        if let Some(id) = dep_escrows2.get(i) {
+            for j in 0..ben_escrows2.len() {
+                if let Some(ben_id) = ben_escrows2.get(j) {
+                    if id == ben_id { return id; }
+                }
+            }
+        }
+    }
+    panic!("no escrow found between the two addresses");
+}
