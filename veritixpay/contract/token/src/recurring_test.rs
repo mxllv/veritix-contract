@@ -7,7 +7,11 @@ mod recurring_tests {
 
     use crate::balance::read_balance;
     use crate::contract::{VeritixToken, VeritixTokenClient};
-    use crate::recurring::{cancel_recurring, execute_recurring, get_next_execution_ledger, get_recurring, is_executable, pause_recurring, setup_recurring};
+    use crate::recurring::{
+        cancel_recurring, execute_recurring, get_next_execution_ledger, get_recurring,
+        get_recurring_by_payer, is_executable, pause_recurring, setup_recurring,
+        transfer_recurring_payer,
+    };
     use crate::storage_types::{read_counter, DataKey};
 
     fn setup_env() -> Env {
@@ -581,6 +585,76 @@ mod recurring_tests {
         assert_eq!(t2, payer);
         // data is () (unit/void) — assert it is the void Val
         assert!(event.2.is_void());
+    }
+
+    #[test]
+    fn test_transfer_recurring_payer_updates_record_and_indexes() {
+        let e = setup_env();
+        let contract_id = e.register_contract(None, VeritixToken);
+        let (old_payer, payee, id) = fund_and_setup(&e, &contract_id, 500, 100);
+        let new_payer = Address::generate(&e);
+
+        e.as_contract(&contract_id, || {
+            crate::balance::receive_balance(&e, new_payer.clone(), 500);
+            transfer_recurring_payer(&e, old_payer.clone(), new_payer.clone(), id);
+
+            let record = get_recurring(&e, id);
+            assert_eq!(record.payer, new_payer.clone());
+            assert_eq!(record.payee, payee);
+
+            let old_ids = get_recurring_by_payer(&e, old_payer.clone());
+            let new_ids = get_recurring_by_payer(&e, new_payer.clone());
+            assert_eq!(old_ids.len(), 0);
+            assert_eq!(new_ids.len(), 1);
+            assert_eq!(new_ids.get(0).unwrap(), id);
+        });
+    }
+
+    #[test]
+    fn test_transfer_recurring_payer_event_topics_and_data() {
+        let e = setup_env();
+        let contract_id = e.register_contract(None, VeritixToken);
+        let (old_payer, _payee, id) = fund_and_setup(&e, &contract_id, 500, 100);
+        let new_payer = Address::generate(&e);
+
+        let before = e.events().all().len();
+        e.as_contract(&contract_id, || {
+            crate::balance::receive_balance(&e, new_payer.clone(), 500);
+            transfer_recurring_payer(&e, old_payer.clone(), new_payer.clone(), id);
+        });
+
+        let events = e.events().all();
+        assert_eq!(events.len(), before + 1);
+        let event = events.last().unwrap();
+        let topics = event.1;
+        assert_eq!(topics.len(), 3);
+        let t0 = Symbol::try_from_val(&e, &topics.get(0).unwrap()).unwrap();
+        assert_eq!(t0, soroban_sdk::symbol_short!("recur_xfer_p"));
+        let t1 = u32::try_from_val(&e, &topics.get(1).unwrap()).unwrap();
+        assert_eq!(t1, id);
+        let t2 = Address::try_from_val(&e, &topics.get(2).unwrap()).unwrap();
+        assert_eq!(t2, new_payer);
+        assert!(event.2.is_void());
+    }
+
+    #[test]
+    fn test_execute_recurring_after_payer_transfer_charges_new_payer() {
+        let e = setup_env();
+        let contract_id = e.register_contract(None, VeritixToken);
+        let (old_payer, payee, id) = fund_and_setup(&e, &contract_id, 500, 100);
+        let new_payer = Address::generate(&e);
+
+        e.as_contract(&contract_id, || {
+            crate::balance::receive_balance(&e, new_payer.clone(), 500);
+            transfer_recurring_payer(&e, old_payer.clone(), new_payer.clone(), id);
+
+            e.ledger().with_mut(|l| l.sequence_number = e.ledger().sequence() + 101);
+            execute_recurring(&e, id);
+
+            assert_eq!(read_balance(&e, old_payer.clone()), 500);
+            assert_eq!(read_balance(&e, new_payer.clone()), 0);
+            assert_eq!(read_balance(&e, payee.clone()), 500);
+        });
     }
 
     // --- Issue #275: Cancel recurring preserves payer balance ---

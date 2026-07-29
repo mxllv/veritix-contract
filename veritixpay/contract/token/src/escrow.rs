@@ -282,6 +282,30 @@ pub fn admin_settle_escrow(e: &Env, admin: Address, escrow_id: u32, recipient: A
     );
 }
 
+pub fn escrowed_value_for_depositor(e: &Env, depositor: Address) -> i128 {
+    let key = DataKey::DepositorEscrows(depositor);
+    let ids: Vec<u32> = e
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| vec![e]);
+    e.storage().persistent().extend_ttl(
+        &key,
+        PERSISTENT_LIFETIME_THRESHOLD,
+        PERSISTENT_BUMP_AMOUNT,
+    );
+
+    let mut total = 0i128;
+    for id in ids.iter() {
+        if let Ok(record) = try_get_escrow(e, id) {
+            if !record.released && !record.refunded {
+                total += record.amount;
+            }
+        }
+    }
+    total
+}
+
 /// Returns the first active escrow ID between depositor and beneficiary, or None.
 pub fn escrow_between(e: &Env, depositor: Address, beneficiary: Address) -> Option<u32> {
     let key = DataKey::DepositorEscrows(depositor);

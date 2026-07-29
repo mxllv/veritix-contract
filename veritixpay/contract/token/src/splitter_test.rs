@@ -3,7 +3,10 @@ use soroban_sdk::{testutils::{Address as _, Events as _}, Address, Env, Symbol, 
 use crate::balance::read_balance;
 use crate::balance::read_total_supply;
 use crate::contract::VeritixToken;
-use crate::splitter::{cancel_split, create_split, distribute, get_split, splitter_stats, SplitRecipient};
+use crate::splitter::{
+    cancel_split, create_split, distribute, get_split, get_splits_for_recipient,
+    replace_split_recipient, splitter_stats, SplitRecipient,
+};
 use crate::storage_types::{read_counter, DataKey};
 
 fn setup_env() -> Env {
@@ -707,6 +710,102 @@ fn test_create_split_shares_sum_to_10001_panics() {
         crate::balance::receive_balance(&e, sender.clone(), 1000);
         let recipients = make_recipients(&e, &[(r1.clone(), 5000), (r2.clone(), 5001)]);
         create_split(&e, sender.clone(), recipients, 1000);
+    });
+}
+
+#[test]
+fn test_get_splits_for_recipient_returns_empty_for_unknown_recipient() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let recipient = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        let ids = get_splits_for_recipient(&e, recipient.clone());
+        assert_eq!(ids.len(), 0);
+    });
+}
+
+#[test]
+fn test_create_split_indexes_ids_for_each_recipient() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let sender = Address::generate(&e);
+    let r1 = Address::generate(&e);
+    let r2 = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, sender.clone(), 1000);
+        let recipients = make_recipients(&e, &[(r1.clone(), 5000), (r2.clone(), 5000)]);
+        let split_id = create_split(&e, sender.clone(), recipients, 1000);
+
+        let r1_ids = get_splits_for_recipient(&e, r1.clone());
+        let r2_ids = get_splits_for_recipient(&e, r2.clone());
+        assert_eq!(r1_ids.len(), 1);
+        assert_eq!(r2_ids.len(), 1);
+        assert_eq!(r1_ids.get(0).unwrap(), split_id);
+        assert_eq!(r2_ids.get(0).unwrap(), split_id);
+    });
+}
+
+#[test]
+fn test_get_splits_for_recipient_returns_all_matching_split_ids() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let sender = Address::generate(&e);
+    let recipient = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, sender.clone(), 2000);
+        let split_one = create_split(
+            &e,
+            sender.clone(),
+            make_recipients(&e, &[(recipient.clone(), 10000)]),
+            1000,
+        );
+        let split_two = create_split(
+            &e,
+            sender.clone(),
+            make_recipients(&e, &[(recipient.clone(), 10000)]),
+            1000,
+        );
+
+        let ids = get_splits_for_recipient(&e, recipient.clone());
+        assert_eq!(ids.len(), 2);
+        assert_eq!(ids.get(0).unwrap(), split_one);
+        assert_eq!(ids.get(1).unwrap(), split_two);
+    });
+}
+
+#[test]
+fn test_replace_split_recipient_updates_recipient_indexes() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let sender = Address::generate(&e);
+    let old_recipient = Address::generate(&e);
+    let new_recipient = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, sender.clone(), 1000);
+        let split_id = create_split(
+            &e,
+            sender.clone(),
+            make_recipients(&e, &[(old_recipient.clone(), 10000)]),
+            1000,
+        );
+
+        replace_split_recipient(
+            &e,
+            sender.clone(),
+            split_id,
+            old_recipient.clone(),
+            new_recipient.clone(),
+        );
+
+        let old_ids = get_splits_for_recipient(&e, old_recipient.clone());
+        let new_ids = get_splits_for_recipient(&e, new_recipient.clone());
+        assert_eq!(old_ids.len(), 0);
+        assert_eq!(new_ids.len(), 1);
+        assert_eq!(new_ids.get(0).unwrap(), split_id);
     });
 }
 

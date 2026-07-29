@@ -51,6 +51,52 @@ pub fn splitter_stats(e: &Env) -> SplitterStats {
     }
 }
 
+fn append_recipient_split_index(e: &Env, recipient: &Address, split_id: u32) {
+    let key = DataKey::RecipientSplits(recipient.clone());
+    let mut ids: Vec<u32> = e
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| Vec::new(e));
+
+    let mut exists = false;
+    for id in ids.iter() {
+        if id == split_id {
+            exists = true;
+            break;
+        }
+    }
+    if !exists {
+        ids.push_back(split_id);
+    }
+
+    e.storage().persistent().set(&key, &ids);
+    e.storage()
+        .persistent()
+        .extend_ttl(&key, SPLIT_LIFETIME_THRESHOLD, SPLIT_BUMP_AMOUNT);
+}
+
+fn remove_recipient_split_index(e: &Env, recipient: &Address, split_id: u32) {
+    let key = DataKey::RecipientSplits(recipient.clone());
+    let ids: Vec<u32> = e
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| Vec::new(e));
+    let mut updated = Vec::new(e);
+
+    for id in ids.iter() {
+        if id != split_id {
+            updated.push_back(id);
+        }
+    }
+
+    e.storage().persistent().set(&key, &updated);
+    e.storage()
+        .persistent()
+        .extend_ttl(&key, SPLIT_LIFETIME_THRESHOLD, SPLIT_BUMP_AMOUNT);
+}
+
 pub fn create_split(
     e: &Env,
     sender: Address,
@@ -108,6 +154,10 @@ pub fn create_split(
         memo: Bytes::new(e),
     };
     write_persistent_record(e, &DataKey::Split(count), &record);
+
+    for recipient in record.recipients.iter() {
+        append_recipient_split_index(e, &recipient.address, count);
+    }
 
     count
 }
@@ -229,6 +279,19 @@ pub fn get_split(e: &Env, split_id: u32) -> SplitRecord {
     read_persistent_record(e, &DataKey::Split(split_id), "split record not found")
 }
 
+pub fn get_splits_for_recipient(e: &Env, recipient: Address) -> Vec<u32> {
+    let key = DataKey::RecipientSplits(recipient);
+    let ids = e
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| Vec::new(e));
+    e.storage()
+        .persistent()
+        .extend_ttl(&key, SPLIT_LIFETIME_THRESHOLD, SPLIT_BUMP_AMOUNT);
+    ids
+}
+
 pub fn replace_split_recipient(
     e: &Env,
     sender: Address,
@@ -278,6 +341,8 @@ pub fn replace_split_recipient(
     }
 
     write_persistent_record(e, &DataKey::Split(split_id), &record);
+    remove_recipient_split_index(e, &old_recipient, split_id);
+    append_recipient_split_index(e, &new_recipient, split_id);
     e.events().publish(
         (symbol_short!("splt_rplc"), split_id, sender),
         (old_recipient, new_recipient),
