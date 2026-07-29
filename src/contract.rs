@@ -99,6 +99,9 @@ pub trait VeriTixPayTrait {
 
     // ── #454: Protocol fee stats ─────────────────────────────────────────────
     fn protocol_fee_stats(e: Env) -> (u32, Address, i128);
+
+    // ── Splitter ─────────────────────────────────────────────────────────────
+    fn replace_split_recipient(e: Env, sender: Address, split_id: u32, old_recipient: Address, new_recipient: Address);
 }
 
 #[contract]
