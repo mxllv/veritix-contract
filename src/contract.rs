@@ -27,6 +27,7 @@ pub trait VeriTixPayTrait {
     fn place_lien(e: Env, creditor: Address, escrow_id: u32, lien_amount: i128);
     fn clear_lien(e: Env, caller: Address, escrow_id: u32);
     fn get_escrow(e: Env, escrow_id: u32) -> escrow::EscrowRecord;
+    fn is_escrow_settled(e: Env, escrow_id: u32) -> bool;
 
     // ── Disputes ──────────────────────────────────────────────────────────────
     fn get_disputes_by_claimant(e: Env, claimant: Address) -> Vec<u32>;
@@ -46,6 +47,7 @@ pub trait VeriTixPayTrait {
     ) -> u32;
     fn execute_recurring(e: Env, recurring_id: u32);
     fn get_recurring_history(e: Env, recurring_id: u32) -> Vec<RecurringPayment>;
+    fn is_recurring_active(e: Env, recurring_id: u32) -> bool;
     fn get_escrows_batch(e: Env, escrow_ids: Vec<u32>) -> Vec<Option<escrow::EscrowRecord>>;
     fn get_escrow_age(e: Env, escrow_id: u32) -> u32;
 
@@ -99,9 +101,7 @@ pub trait VeriTixPayTrait {
 
     // ── #454: Protocol fee stats ─────────────────────────────────────────────
     fn protocol_fee_stats(e: Env) -> (u32, Address, i128);
-
-    // ── Splitter ─────────────────────────────────────────────────────────────
-    fn replace_split_recipient(e: Env, sender: Address, split_id: u32, old_recipient: Address, new_recipient: Address);
+    fn emergency_withdraw(e: Env, admin: Address, recipient: Address, token: Address, amount: i128);
 }
 
 #[contract]
@@ -173,6 +173,14 @@ impl VeriTixPayTrait for VeriTixPay {
         escrow::load_record(&e, escrow_id)
     }
 
+    fn is_escrow_settled(e: Env, escrow_id: u32) -> bool {
+        match e.storage().persistent().get::<Option<escrow::EscrowRecord>>(&DataKey::Escrow(escrow_id))
+        {
+            Some(escrow) => escrow.released || escrow.refunded,
+            None => true,
+        }
+    }
+
     fn get_disputes_by_claimant(e: Env, claimant: Address) -> Vec<u32> {
         dispute::get_disputes_by_claimant(e, claimant)
     }
@@ -207,6 +215,14 @@ impl VeriTixPayTrait for VeriTixPay {
 
     fn get_recurring_history(e: Env, recurring_id: u32) -> Vec<RecurringPayment> {
         recurring::get_recurring_history(e, recurring_id)
+    }
+
+    fn is_recurring_active(e: Env, recurring_id: u32) -> bool {
+        match e.storage().persistent().get::<Option<recurring::RecurringRecord>>(&DataKey::Recurring(recurring_id))
+        {
+            Some(record) => record.active,
+            None => false,
+        }
     }
 
     fn get_escrows_batch(e: Env, escrow_ids: Vec<u32>) -> Vec<Option<escrow::EscrowRecord>> {
@@ -360,18 +376,28 @@ impl VeriTixPayTrait for VeriTixPay {
         (fee_bps, treasury, total_collected)
     }
 
-    fn get_escrow_age(e: Env, escrow_id: u32) -> u32 {
-        let escrow = escrow::load_record(&e, escrow_id);
-        // Return 0 if escrow is settled (released or refunded)
-        if escrow.released || escrow.refunded {
-            return 0;
-        }
-        e.ledger().sequence() - escrow.created_at_ledger
-    }
+    fn emergency_withdraw(e: Env, admin: Address, recipient: Address, token: Address, amount: i128) {
+        // Verify caller is admin and authenticated
+        admin::check_admin(&e, &admin);
 
-    // ── Splitter ─────────────────────────────────────────────────────────────
+        // Get contract's current balance of the token
+        let token_client = soroban_sdk::token::Client::new(&e, &token);
+        let contract_balance = token_client.balance(&e.current_contract_address());
 
-    fn replace_split_recipient(e: Env, sender: Address, split_id: u32, old_recipient: Address, new_recipient: Address) {
-        crate::splitter::replace_split_recipient(e, sender, split_id, old_recipient, new_recipient);
+        // Get total escrowed value (locked funds that cannot be touched)
+        let total_escrowed = escrow::get_escrowed_total(&e);
+
+        // Verify we're not withdrawing more than the stranded funds (contract balance - escrowed funds)
+        assert!(amount <= contract_balance - total_escrowed, "Insufficient non-escrowed funds");
+        assert!(amount > 0, "Amount must be positive");
+
+        // Transfer the amount from the contract to the recipient
+        token_client.transfer(&e.current_contract_address(), &recipient, &amount);
+
+        // Emit the emergency withdrawal event
+        e.events().publish(
+            (soroban_sdk::symbol_short!("emer_wdraw"), admin, recipient),
+            amount,
+        );
     }
 }

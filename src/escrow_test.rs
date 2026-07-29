@@ -505,6 +505,33 @@ fn test_get_escrows_batch() {
 }
 
 #[test]
+fn test_is_escrow_settled() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
+
+    // Non-existent escrow should return true (settled/gone)
+    assert!(t.client.is_escrow_settled(&999));
+
+    // Create a new escrow - should not be settled yet
+    let id = t.client.create_escrow(
+        &t.depositor, &t.beneficiary, &t.token, &1000, &expiry, &empty_memo(&t.e),
+    );
+    assert!(!t.client.is_escrow_settled(&id));
+
+    // Release the escrow - should now be settled
+    t.client.release_escrow(&t.depositor, &id);
+    assert!(t.client.is_escrow_settled(&id));
+
+    // Create another escrow, refund it - should be settled
+    let id2 = t.client.create_escrow(
+        &t.depositor, &t.beneficiary, &t.token, &500, &expiry, &empty_memo(&t.e),
+    );
+    assert!(!t.client.is_escrow_settled(&id2));
+    t.client.refund_escrow(&t.depositor, &id2);
+    assert!(t.client.is_escrow_settled(&id2));
+}
+
+#[test]
 fn test_get_escrow_age() {
     let t = setup();
     let start_ledger = t.e.ledger().sequence();
