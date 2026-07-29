@@ -1,5 +1,5 @@
 use soroban_sdk::{contract, contractimpl, Address, Bytes, Env, Vec};
-use crate::{escrow, multi_escrow, allowance, admin, dispute, recurring};
+use crate::{escrow, multi_escrow, allowance, admin, dispute, recurring, balance};
 use crate::storage_types::{DataKey, RecurringPayment, ResolverStats};
 use crate::validation::require_positive_amount;
 
@@ -24,6 +24,7 @@ pub trait VeriTixPayTrait {
     fn get_escrows_by_beneficiary(e: Env, beneficiary: Address) -> Vec<u32>;
     fn escrowed_total(e: Env) -> i128;
     fn escrow_stats(e: Env) -> escrow::EscrowStats;
+    fn topup_escrow(e: Env, depositor: Address, escrow_id: u32, amount: i128);
     fn place_lien(e: Env, creditor: Address, escrow_id: u32, lien_amount: i128);
     fn clear_lien(e: Env, caller: Address, escrow_id: u32);
     fn get_escrow(e: Env, escrow_id: u32) -> escrow::EscrowRecord;
@@ -102,6 +103,12 @@ pub trait VeriTixPayTrait {
     // ── #454: Protocol fee stats ─────────────────────────────────────────────
     fn protocol_fee_stats(e: Env) -> (u32, Address, i128);
     fn emergency_withdraw(e: Env, admin: Address, recipient: Address, token: Address, amount: i128);
+
+    fn transfer_escrow_beneficiary(e: Env, depositor: Address, escrow_id: u32, new_beneficiary: Address);
+    fn total_holders(e: Env) -> u32;
+    fn get_holders(e: Env) -> Vec<Address>;
+    fn set_mediation_fee(e: Env, admin: Address, fee_bps: u32);
+    fn raise_dispute(e: Env, caller: Address, escrow_id: u32);
 }
 
 #[contract]
@@ -399,5 +406,47 @@ impl VeriTixPayTrait for VeriTixPay {
             (soroban_sdk::symbol_short!("emer_wdraw"), admin, recipient),
             amount,
         );
+    }
+
+    fn topup_escrow(e: Env, depositor: Address, escrow_id: u32, amount: i128) {
+        escrow::topup_escrow(e, depositor, escrow_id, amount)
+    }
+
+    fn transfer_escrow_beneficiary(e: Env, depositor: Address, escrow_id: u32, new_beneficiary: Address) {
+        depositor.require_auth();
+        let mut record = escrow::load_record(&e, escrow_id);
+        assert!(!record.released && !record.refunded, "escrow already settled");
+        assert!(record.depositor == depositor, "not the depositor");
+        record.beneficiary = new_beneficiary.clone();
+        escrow::save_record(&e, &record);
+        e.events().publish(
+            (soroban_sdk::symbol_short!("benef_chg"), depositor),
+            (escrow_id, new_beneficiary),
+        );
+    }
+
+    fn total_holders(e: Env) -> u32 {
+        let holders: Vec<Address> = e.storage().persistent()
+            .get(&DataKey::Holders).unwrap_or(Vec::new(&e));
+        holders.len()
+    }
+
+    fn get_holders(e: Env) -> Vec<Address> {
+        e.storage().persistent()
+            .get(&DataKey::Holders).unwrap_or(Vec::new(&e))
+    }
+
+    fn set_mediation_fee(e: Env, admin: Address, fee_bps: u32) {
+        crate::admin::check_admin(&e, &admin);
+        assert!(fee_bps < 10000, "fee_bps must be less than 10000");
+        e.storage().persistent().set(&DataKey::MediationFeeBps, &fee_bps);
+    }
+
+    fn raise_dispute(e: Env, caller: Address, escrow_id: u32) {
+        let max_disputes: u32 = e.storage().persistent().get(&DataKey::MaxDisputes).unwrap_or(3);
+        let current_count: u32 = e.storage().persistent().get(&DataKey::DisputeCount(escrow_id)).unwrap_or(0);
+        assert!(current_count < max_disputes, "maximum dispute count exceeded");
+        e.storage().persistent().set(&DataKey::DisputeCount(escrow_id), &(current_count + 1));
+        dispute::raise_dispute(&e, &caller, escrow_id)
     }
 }

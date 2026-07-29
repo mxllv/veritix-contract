@@ -29,6 +29,10 @@ pub enum DataKey {
     TotalFeesCollected,
     SplitCount,
     Split(u32),
+    MediationFeeBps,
+    Holders,
+    DisputeCount(u32),
+    MaxDisputes(u32),
 }
 
 #[contracttype]

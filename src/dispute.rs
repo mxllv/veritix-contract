@@ -48,6 +48,9 @@ pub fn raise_dispute(e: &Env, caller: &Address, escrow_id: u32) {
 }
 
 pub fn resolve_dispute(e: &Env, resolver: &Address, escrow_id: u32, winner: &Address) {
+    // #522: Mediation fee
+    let mediation_fee_bps: u32 = e.storage().persistent().get(&DataKey::MediationFeeBps).unwrap_or(0);
+    let mut transfer_amount: i128;
     let arbiter = get_arbiter(e);
     if *resolver != arbiter {
         panic!("Unauthorized: only the arbiter can resolve disputes");
@@ -83,7 +86,17 @@ pub fn resolve_dispute(e: &Env, resolver: &Address, escrow_id: u32, winner: &Add
 
         let remaining = record.amount;
         if remaining > 0 {
-            token_client.transfer(&e.current_contract_address(), &record.beneficiary, &remaining);
+            transfer_amount = remaining;
+            if mediation_fee_bps > 0 && resolver != e.current_contract_address() {
+                let mediation_fee = remaining * mediation_fee_bps as i128 / 10000;
+                if mediation_fee > 0 {
+                    token_client.transfer(&e.current_contract_address(), resolver, &mediation_fee);
+                    transfer_amount = remaining - mediation_fee;
+                }
+            }
+            if transfer_amount > 0 {
+                token_client.transfer(&e.current_contract_address(), &record.beneficiary, &transfer_amount);
+            }
         }
     } else {
         record.refunded = true;
@@ -91,7 +104,17 @@ pub fn resolve_dispute(e: &Env, resolver: &Address, escrow_id: u32, winner: &Add
 
         let refundable = record.amount - record.released_amount;
         if refundable > 0 {
-            token_client.transfer(&e.current_contract_address(), &record.depositor, &refundable);
+            transfer_amount = refundable;
+            if mediation_fee_bps > 0 && resolver != e.current_contract_address() {
+                let mediation_fee = refundable * mediation_fee_bps as i128 / 10000;
+                if mediation_fee > 0 {
+                    token_client.transfer(&e.current_contract_address(), resolver, &mediation_fee);
+                    transfer_amount = refundable - mediation_fee;
+                }
+            }
+            if transfer_amount > 0 {
+                token_client.transfer(&e.current_contract_address(), &record.depositor, &transfer_amount);
+            }
         }
     }
 
