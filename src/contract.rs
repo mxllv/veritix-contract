@@ -356,4 +356,13 @@ impl VeriTixPayTrait for VeriTixPay {
             .unwrap_or(0);
         (fee_bps, treasury, total_collected)
     }
+
+    fn get_escrow_age(e: Env, escrow_id: u32) -> u32 {
+        let escrow = escrow::load_record(&e, escrow_id);
+        // Return 0 if escrow is settled (released or refunded)
+        if escrow.released || escrow.refunded {
+            return 0;
+        }
+        e.ledger().sequence() - escrow.created_at_ledger
+    }
 }
