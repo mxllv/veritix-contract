@@ -1,4 +1,4 @@
-use soroban_sdk::{contract, contractimpl, Address, Bytes, Env, Vec};
+use soroban_sdk::{contract, contractimpl, contracttype, Address, Bytes, Env, String, Vec};
 use crate::{escrow, multi_escrow, allowance, admin, dispute, recurring};
 use crate::storage_types::{DataKey, RecurringPayment, ResolverStats};
 use crate::validation::require_positive_amount;
@@ -102,6 +102,18 @@ pub trait VeriTixPayTrait {
     // ── #454: Protocol fee stats ─────────────────────────────────────────────
     fn protocol_fee_stats(e: Env) -> (u32, Address, i128);
     fn emergency_withdraw(e: Env, admin: Address, recipient: Address, token: Address, amount: i128);
+
+    fn version(e: Env) -> soroban_sdk::String;
+    fn contract_summary(e: Env) -> ContractSummary;
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct ContractSummary {
+    pub admin: Address,
+    pub total_supply: i128,
+    pub escrow_count: u32,
+    pub total_value_locked: i128,
 }
 
 #[contract]
@@ -399,5 +411,17 @@ impl VeriTixPayTrait for VeriTixPay {
             (soroban_sdk::symbol_short!("emer_wdraw"), admin, recipient),
             amount,
         );
+    }
+
+    fn version(e: Env) -> soroban_sdk::String {
+        e.storage().persistent().get(&DataKey::Version).unwrap_or(String::from_str(&e, "1.0.0"))
+    }
+
+    fn contract_summary(e: Env) -> ContractSummary {
+        let admin: Address = e.storage().persistent().get(&DataKey::Admin).expect("admin not set");
+        let total_supply: i128 = e.storage().persistent().get(&DataKey::TotalSupply).unwrap_or(0);
+        let escrow_count: u32 = e.storage().persistent().get(&DataKey::EscrowCount).unwrap_or(0);
+        let total_value_locked: i128 = e.storage().persistent().get(&DataKey::EscrowValueLocked).unwrap_or(0);
+        ContractSummary { admin, total_supply, escrow_count, total_value_locked }
     }
 }

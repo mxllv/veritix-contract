@@ -21,4 +21,6 @@ mod splitter_test;
 mod storage_types;
 #[cfg(test)]
 mod test;
+mod version_test;
+mod contract_summary;
 mod validation;
