@@ -101,6 +101,7 @@ pub trait VeriTixPayTrait {
 
     // ── #454: Protocol fee stats ─────────────────────────────────────────────
     fn protocol_fee_stats(e: Env) -> (u32, Address, i128);
+    fn emergency_withdraw(e: Env, admin: Address, recipient: Address, token: Address, amount: i128);
 }
 
 #[contract]
@@ -373,5 +374,30 @@ impl VeriTixPayTrait for VeriTixPay {
             .get(&DataKey::TotalFeesCollected)
             .unwrap_or(0);
         (fee_bps, treasury, total_collected)
+    }
+
+    fn emergency_withdraw(e: Env, admin: Address, recipient: Address, token: Address, amount: i128) {
+        // Verify caller is admin and authenticated
+        admin::check_admin(&e, &admin);
+
+        // Get contract's current balance of the token
+        let token_client = soroban_sdk::token::Client::new(&e, &token);
+        let contract_balance = token_client.balance(&e.current_contract_address());
+
+        // Get total escrowed value (locked funds that cannot be touched)
+        let total_escrowed = escrow::get_escrowed_total(&e);
+
+        // Verify we're not withdrawing more than the stranded funds (contract balance - escrowed funds)
+        assert!(amount <= contract_balance - total_escrowed, "Insufficient non-escrowed funds");
+        assert!(amount > 0, "Amount must be positive");
+
+        // Transfer the amount from the contract to the recipient
+        token_client.transfer(&e.current_contract_address(), &recipient, &amount);
+
+        // Emit the emergency withdrawal event
+        e.events().publish(
+            (soroban_sdk::symbol_short!("emer_wdraw"), admin, recipient),
+            amount,
+        );
     }
 }
