@@ -368,4 +368,10 @@ impl VeriTixPayTrait for VeriTixPay {
         }
         e.ledger().sequence() - escrow.created_at_ledger
     }
+
+    // ── Splitter ─────────────────────────────────────────────────────────────
+
+    fn replace_split_recipient(e: Env, sender: Address, split_id: u32, old_recipient: Address, new_recipient: Address) {
+        crate::splitter::replace_split_recipient(e, sender, split_id, old_recipient, new_recipient);
+    }
 }

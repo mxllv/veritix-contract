@@ -36,6 +36,16 @@ pub fn check_admin(e: &Env, caller: &Address) {
     caller.require_auth();
 }
 
+pub fn is_admin(e: &Env, caller: &Address) -> bool {
+    let admin: Address = e
+        .storage()
+        .persistent()
+        .get(&DataKey::Admin)
+        .expect("admin not set");
+    
+    admin == *caller
+}
+
 pub fn is_initialized(e: &Env) -> bool {
     e.storage().persistent().has(&DataKey::Admin)
 }
