@@ -10,7 +10,7 @@ doctest = false
 
 [dependencies]
 soroban-sdk = "27.0.3"
-zeroize = ">=1.0, <1.9"
+zeroize = ">=1.0, <1.10"
 base64ct = ">=1.0, <1.9"
 
 [dev-dependencies]
