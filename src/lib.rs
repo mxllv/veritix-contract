@@ -22,3 +22,4 @@ mod storage_types;
 #[cfg(test)]
 mod test;
 mod validation;
+mod whitelist;

@@ -1,5 +1,9 @@
 use soroban_sdk::{contract, contractimpl, Address, Bytes, Env, Vec};
+<<<<<<< HEAD
 use crate::{freeze, escrow, multi_escrow, allowance, admin, dispute, recurring};
+=======
+use crate::{escrow, multi_escrow, allowance, admin, dispute, recurring, whitelist};
+>>>>>>> main
 use crate::storage_types::{DataKey, RecurringPayment, ResolverStats};
 use crate::validation::require_positive_amount;
 
@@ -103,11 +107,25 @@ pub trait VeriTixPayTrait {
     fn protocol_fee_stats(e: Env) -> (u32, Address, i128);
     fn emergency_withdraw(e: Env, admin: Address, recipient: Address, token: Address, amount: i128);
 
+<<<<<<< HEAD
     fn spendable_balance(e: Env, account: Address) -> i128;
     fn set_authorized(e: Env, admin: Address, account: Address, authorized: bool);
     fn increase_allowance(e: Env, from: Address, spender: Address, amount: i128);
     fn decrease_allowance(e: Env, from: Address, spender: Address, amount: i128);
     fn burn_from(e: Env, spender: Address, from: Address, amount: i128);
+=======
+    fn transfer_with_memo(e: Env, from: Address, to: Address, amount: i128, memo: Bytes);
+    fn revoke_all_allowances(e: Env, from: Address);
+    fn enable_whitelist(e: Env, admin: Address);
+    fn disable_whitelist(e: Env, admin: Address);
+    fn add_to_whitelist(e: Env, admin: Address, account: Address);
+    fn remove_from_whitelist(e: Env, admin: Address, account: Address);
+    fn is_whitelisted(e: Env, account: Address) -> bool;
+    fn set_protocol_fee(e: Env, admin: Address, fee_bps: u32, treasury: Address);
+    fn trigger_auto_release(e: Env, escrow_id: u32);
+    fn escrow_between(e: Env, addr1: Address, addr2: Address) -> u32;
+    fn cancel_recurring_batch(e: Env, caller: Address, recurring_ids: Vec<u32>);
+>>>>>>> main
 }
 
 #[contract]
@@ -407,6 +425,7 @@ impl VeriTixPayTrait for VeriTixPay {
         );
     }
 
+<<<<<<< HEAD
     fn spendable_balance(e: Env, account: Address) -> i128 {
         balance::spendable_balance(&e, &account)
     }
@@ -425,5 +444,45 @@ impl VeriTixPayTrait for VeriTixPay {
 
     fn burn_from(e: Env, spender: Address, from: Address, amount: i128) {
         balance::burn_from(&e, &spender, &from, amount)
+=======
+    fn transfer_with_memo(e: Env, from: Address, to: Address, amount: i128, memo: Bytes) {
+        from.require_auth();
+        assert!(amount > 0, "amount must be positive");
+        assert!(memo.len() <= 64, "memo cannot exceed 64 bytes");
+        whitelist::check(&e, &from, &to);
+        let token_client = soroban_sdk::token::Client::new(&e, &e.current_contract_address());
+        token_client.transfer(&from, &to, &amount);
+        e.events().publish((soroban_sdk::symbol_short!("transfer"), from, to), (amount, memo));
+    }
+
+    fn revoke_all_allowances(e: Env, from: Address) {
+        from.require_auth();
+        allowance::revoke_all_allowances(&e, &from);
+    }
+
+    fn enable_whitelist(e: Env, admin: Address) { whitelist::enable(&e, &admin); }
+    fn disable_whitelist(e: Env, admin: Address) { whitelist::disable(&e, &admin); }
+    fn add_to_whitelist(e: Env, admin: Address, account: Address) { whitelist::add(&e, &admin, &account); }
+    fn remove_from_whitelist(e: Env, admin: Address, account: Address) { whitelist::remove(&e, &admin, &account); }
+    fn is_whitelisted(e: Env, account: Address) -> bool { whitelist::is_whitelisted(&e, &account) }
+
+    fn set_protocol_fee(e: Env, admin: Address, fee_bps: u32, treasury: Address) {
+        crate::admin::check_admin(&e, &admin);
+        assert!(fee_bps < 10000, "fee_bps must be less than 10000");
+        e.storage().persistent().set(&DataKey::FeeBps, &fee_bps);
+        e.storage().persistent().set(&DataKey::TreasuryAddress, &treasury);
+    }
+
+    fn trigger_auto_release(e: Env, escrow_id: u32) {
+        escrow::trigger_auto_release(e, escrow_id)
+    }
+
+    fn escrow_between(e: Env, addr1: Address, addr2: Address) -> u32 {
+        escrow::escrow_between(e, addr1, addr2)
+    }
+
+    fn cancel_recurring_batch(e: Env, caller: Address, recurring_ids: Vec<u32>) {
+        recurring::cancel_recurring_batch(&e, &caller, recurring_ids)
+>>>>>>> main
     }
 }

@@ -19,8 +19,68 @@ pub fn write_allowance(e: &Env, from: &Address, spender: &Address, amount: i128,
 }
 
 pub fn create_allowance(e: &Env, from: &Address, spender: &Address, amount: i128, expiration_ledger: u32) {
+    track_spender(e, from, spender);
     write_allowance(e, from, spender, amount, expiration_ledger);
 }
+
+
+pub fn check_admin(e: &Env, caller: &Address) {
+    let admin: Address = e
+        .storage()
+        .persistent()
+        .get(&DataKey::Admin)
+        .expect("admin not set");
+
+    if admin != *caller {
+        panic!("Unauthorized: caller is not the contract admin");
+    }
+
+    let admin_active_after: u32 = e
+        .storage()
+        .persistent()
+        .get(&DataKey::AdminActiveAfter)
+        .unwrap_or(0);
+
+    if e.ledger().sequence() < admin_active_after {
+        panic!(
+            "AdminNotActive yet — new admin becomes active after ledger {}",
+            admin_active_after
+        );
+    }
+
+    caller.require_auth();
+}
+
+pub fn is_initialized(e: &Env) -> bool {
+    e.storage().persistent().has(&DataKey::Admin)
+}
+
+pub fn require_initialized(e: &Env) {
+    if !is_initialized(e) {
+        panic!("NotInitialized: call initialize first");
+    }
+}
+
+// ── #451: One-step admin change with time-delay ──────────────────────────────
+
+pub fn transfer_ownership(e: &Env, new_admin: &Address) {
+    let current_admin: Address = e
+        .storage()
+        .persistent()
+        .get(&DataKey::Admin)
+        .expect("admin not set");
+    current_admin.require_auth();
+
+    e.storage()
+        .persistent()
+        .set(&DataKey::ProposedAdmin, new_admin);
+
+    e.events().publish(
+        (soroban_sdk::symbol_short!("ownership"),),
+        (current_admin, new_admin.clone()),
+    );
+}
+
 
 pub fn read_allowance(e: &Env, from: &Address, spender: &Address) -> Allowance {
     let key = DataKey::Allowance(from.clone(), spender.clone());
@@ -42,6 +102,7 @@ pub fn spend_allowance(e: &Env, from: &Address, spender: &Address, amount: i128)
     write_allowance(e, from, spender, new_amount, allowance.expiration_ledger);
 }
 
+<<<<<<< HEAD
 pub fn increase_allowance(e: &Env, from: &Address, spender: &Address, amount: i128) {
     from.require_auth();
     assert!(amount > 0, "amount must be positive");
@@ -60,5 +121,35 @@ pub fn decrease_allowance(e: &Env, from: &Address, spender: &Address, amount: i1
     } else {
         let new_amount = current.amount - amount;
         write_allowance(e, from, spender, new_amount, current.expiration_ledger);
+=======
+pub fn revoke_all_allowances(e: &Env, from: &Address) {
+    let spenders: soroban_sdk::Vec<Address> = e.storage().persistent()
+        .get(&DataKey::AllowanceSpenders(from.clone()))
+        .unwrap_or(soroban_sdk::Vec::new(e));
+    for i in 0..spenders.len() {
+        if let Some(spender) = spenders.get(i) {
+            e.storage().persistent().remove(&DataKey::Allowance(from.clone(), spender));
+        }
+    }
+    e.storage().persistent().remove(&DataKey::AllowanceSpenders(from.clone()));
+}
+
+pub fn track_spender(e: &Env, from: &Address, spender: &Address) {
+    let mut spenders: soroban_sdk::Vec<Address> = e.storage().persistent()
+        .get(&DataKey::AllowanceSpenders(from.clone()))
+        .unwrap_or(soroban_sdk::Vec::new(e));
+    let mut found = false;
+    for i in 0..spenders.len() {
+        if let Some(s) = spenders.get(i) {
+            if s == *spender {
+                found = true;
+                break;
+            }
+        }
+    }
+    if !found {
+        spenders.push_back(spender.clone());
+        e.storage().persistent().set(&DataKey::AllowanceSpenders(from.clone()), &spenders);
+>>>>>>> main
     }
 }
