@@ -21,6 +21,11 @@ mod splitter_test;
 mod storage_types;
 #[cfg(test)]
 mod test;
+<<<<<<< HEAD
 mod version_test;
 mod contract_summary;
 mod validation;
+=======
+mod validation;
+mod whitelist;
+>>>>>>> main
