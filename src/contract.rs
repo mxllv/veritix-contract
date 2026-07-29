@@ -47,6 +47,7 @@ pub trait VeriTixPayTrait {
     ) -> u32;
     fn execute_recurring(e: Env, recurring_id: u32);
     fn get_recurring_history(e: Env, recurring_id: u32) -> Vec<RecurringPayment>;
+    fn is_recurring_active(e: Env, recurring_id: u32) -> bool;
     fn get_escrows_batch(e: Env, escrow_ids: Vec<u32>) -> Vec<Option<escrow::EscrowRecord>>;
     fn get_escrow_age(e: Env, escrow_id: u32) -> u32;
 
@@ -171,6 +172,14 @@ impl VeriTixPayTrait for VeriTixPay {
         escrow::load_record(&e, escrow_id)
     }
 
+    fn is_escrow_settled(e: Env, escrow_id: u32) -> bool {
+        match e.storage().persistent().get::<Option<escrow::EscrowRecord>>(&DataKey::Escrow(escrow_id))
+        {
+            Some(escrow) => escrow.released || escrow.refunded,
+            None => true,
+        }
+    }
+
     fn get_disputes_by_claimant(e: Env, claimant: Address) -> Vec<u32> {
         dispute::get_disputes_by_claimant(e, claimant)
     }
@@ -205,6 +214,14 @@ impl VeriTixPayTrait for VeriTixPay {
 
     fn get_recurring_history(e: Env, recurring_id: u32) -> Vec<RecurringPayment> {
         recurring::get_recurring_history(e, recurring_id)
+    }
+
+    fn is_recurring_active(e: Env, recurring_id: u32) -> bool {
+        match e.storage().persistent().get::<Option<recurring::RecurringRecord>>(&DataKey::Recurring(recurring_id))
+        {
+            Some(record) => record.active,
+            None => false,
+        }
     }
 
     fn get_escrows_batch(e: Env, escrow_ids: Vec<u32>) -> Vec<Option<escrow::EscrowRecord>> {
