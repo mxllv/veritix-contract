@@ -16,6 +16,8 @@ mod multi_escrow;
 mod multi_escrow_test;
 mod recurring;
 mod recurring_test;
+mod splitter;
+mod splitter_test;
 mod storage_types;
 #[cfg(test)]
 mod test;

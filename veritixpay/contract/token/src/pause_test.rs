@@ -19,6 +19,7 @@ fn test_pause_and_unpause_toggles_state() {
         assert!(!is_paused(&e));
     });
 }
+// test: add batch_test.rs comprehensive coverage
 
 #[test]
 #[should_panic(expected = "ContractPaused")]

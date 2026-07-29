@@ -8,8 +8,8 @@ use crate::balance::read_balance;
 use crate::balance::read_total_supply;
 use crate::contract::VeritixToken;
 use crate::escrow::{
-    admin_settle_escrow, create_escrow, get_escrow, refund_escrow, release_escrow, try_get_escrow,
-    try_refund_escrow, try_release_escrow,
+    admin_settle_escrow, create_escrow, escrowed_value_for_depositor, get_escrow, refund_escrow,
+    release_escrow, try_get_escrow, try_refund_escrow, try_release_escrow,
 };
 use crate::freeze::{freeze_account, is_frozen};
 use crate::storage_types::{read_counter, DataKey};
@@ -1202,6 +1202,56 @@ fn test_admin_settle_escrow_when_beneficiary_frozen() {
 
         let record = get_escrow(&e, escrow_id);
         assert!(record.released);
+    });
+}
+
+#[test]
+fn test_escrowed_value_for_depositor_returns_zero_without_escrows() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let depositor = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        assert_eq!(escrowed_value_for_depositor(&e, depositor.clone()), 0);
+    });
+}
+
+#[test]
+fn test_escrowed_value_for_depositor_sums_active_escrows() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let depositor = Address::generate(&e);
+    let beneficiary_one = Address::generate(&e);
+    let beneficiary_two = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, depositor.clone(), 1_500);
+        create_escrow(&e, depositor.clone(), beneficiary_one, 400, 1000);
+        create_escrow(&e, depositor.clone(), beneficiary_two, 600, 1000);
+
+        assert_eq!(escrowed_value_for_depositor(&e, depositor.clone()), 1_000);
+    });
+}
+
+#[test]
+fn test_escrowed_value_for_depositor_excludes_settled_escrows() {
+    let e = setup_env();
+    let contract_id = e.register_contract(None, VeritixToken);
+    let depositor = Address::generate(&e);
+    let beneficiary_one = Address::generate(&e);
+    let beneficiary_two = Address::generate(&e);
+    let beneficiary_three = Address::generate(&e);
+
+    e.as_contract(&contract_id, || {
+        crate::balance::receive_balance(&e, depositor.clone(), 1_500);
+        let released_id = create_escrow(&e, depositor.clone(), beneficiary_one.clone(), 300, 1000);
+        let refunded_id = create_escrow(&e, depositor.clone(), beneficiary_two, 400, 1000);
+        create_escrow(&e, depositor.clone(), beneficiary_three, 500, 1000);
+
+        release_escrow(&e, beneficiary_one, released_id);
+        refund_escrow(&e, depositor.clone(), refunded_id);
+
+        assert_eq!(escrowed_value_for_depositor(&e, depositor.clone()), 500);
     });
 }
 

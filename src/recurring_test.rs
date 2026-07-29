@@ -100,3 +100,47 @@ fn test_max_executions_deactivates() {
     e.ledger().with_mut(|l| l.sequence_number = e.ledger().sequence() + interval);
     execute_recurring(&e, recurring_id);
 }
+
+#[test]
+fn test_is_recurring_active() {
+    use soroban_sdk::{Address, token};
+    use crate::contract::{VeriTixPay, VeriTixPayClient};
+
+    let e = Env::default();
+    e.mock_all_auths();
+
+    let contract_id = e.register_contract(None, VeriTixPay);
+    let client = VeriTixPayClient::new(&e, &contract_id);
+
+    let payer = Address::generate(&e);
+    let payee = Address::generate(&e);
+    let token = e.register_stellar_asset_contract(payer.clone());
+    let token_client = token::Client::new(&e, &token);
+    token_client.mint(&payer, &1000);
+
+    // Non-existent recurring should return false
+    assert!(!client.is_recurring_active(&999));
+
+    // Setup a new recurring payment
+    let recurring_id = client.setup_recurring(
+        &payer,
+        &payee,
+        &token,
+        &100,
+        &100, // interval
+        &3,   // max executions
+    );
+
+    // Should be active after creation
+    assert!(client.is_recurring_active(&recurring_id));
+
+    // Execute all max executions to deactivate
+    for i in 1..=3 {
+        e.ledger().with_mut(|l| l.sequence_number += 100);
+        client.execute_recurring(&recurring_id);
+    }
+
+    // Should be inactive after max executions
+    assert!(!client.is_recurring_active(&recurring_id));
+}
+}
