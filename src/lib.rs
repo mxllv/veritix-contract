@@ -14,6 +14,8 @@ mod escrow_test;
 mod freeze;
 mod multi_escrow;
 mod multi_escrow_test;
+mod pause;
+mod permit;
 mod recurring;
 mod recurring_test;
 mod splitter;
@@ -21,11 +23,8 @@ mod splitter_test;
 mod storage_types;
 #[cfg(test)]
 mod test;
-<<<<<<< HEAD
+mod validation;
 mod version_test;
-mod contract_summary;
-mod validation;
-=======
-mod validation;
 mod whitelist;
->>>>>>> main
+#[cfg(test)]
+mod sep41_test;

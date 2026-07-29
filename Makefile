@@ -1,4 +1,4 @@
-.PHONY: e2e-test smoke-test
+.PHONY: e2e-test smoke-test integration-test
 
 e2e-test:
 	@echo "Running end-to-end event lifecycle test..."
@@ -8,3 +8,7 @@ e2e-test:
 smoke-test:
 	@echo "Running testnet smoke test..."
 	@bash scripts/smoke_test.sh
+
+integration-test:
+	@echo "Running Soroban CLI integration test..."
+	@bash scripts/integration_test.sh

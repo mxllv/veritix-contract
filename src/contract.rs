@@ -20,6 +20,16 @@ use crate::validation::require_positive_amount;
 pub trait VeriTixPayTrait {
     fn initialize(e: Env, admin: Address);
 
+    // ── SEP-41 Token Interface ────────────────────────────────────────────────
+    fn name(e: Env) -> soroban_sdk::String;
+    fn symbol(e: Env) -> soroban_sdk::String;
+    fn decimals(e: Env) -> u32;
+    fn balance(e: Env, account: Address) -> i128;
+    fn total_supply(e: Env) -> i128;
+    fn mint(e: Env, admin: Address, to: Address, amount: i128);
+    fn burn(e: Env, from: Address, amount: i128);
+    fn clawback(e: Env, admin: Address, from: Address, amount: i128);
+
     // ── Escrow ────────────────────────────────────────────────────────────────
     fn create_escrow(
         e: Env,
@@ -111,6 +121,10 @@ pub trait VeriTixPayTrait {
     // ── #452: Depositor escrowed value ───────────────────────────────────────
     fn escrowed_value_for_depositor(e: Env, depositor: Address) -> i128;
 
+    // ── Permit / Nonce ────────────────────────────────────────────────────────
+    fn permit(e: Env, user: Address, nonce: u32);
+    fn nonces(e: Env, user: Address) -> u32;
+
     // ── #453: Resolver stats ─────────────────────────────────────────────────
     fn resolver_stats(e: Env, resolver: Address) -> ResolverStats;
 
@@ -181,6 +195,63 @@ impl VeriTixPayTrait for VeriTixPay {
         }
 
         env.storage().persistent().set(&DataKey::Admin, &admin);
+    }
+
+    // ── SEP-41 Token Interface ────────────────────────────────────────────────
+
+    fn name(e: Env) -> soroban_sdk::String {
+        soroban_sdk::String::from_str(&e, "VeriTix")
+    }
+
+    fn symbol(e: Env) -> soroban_sdk::String {
+        soroban_sdk::String::from_str(&e, "VTX")
+    }
+
+    fn decimals(e: Env) -> u32 {
+        7
+    }
+
+    fn balance(e: Env, account: Address) -> i128 {
+        crate::balance::balance_of(&e, &account)
+    }
+
+    fn total_supply(e: Env) -> i128 {
+        crate::balance::read_supply(&e)
+    }
+
+    fn mint(e: Env, admin: Address, to: Address, amount: i128) {
+        admin::check_admin(&e, &admin);
+        require_positive_amount(amount);
+        crate::balance::increase_supply(&e, amount);
+        crate::balance::add_balance(&e, &to, amount);
+    }
+
+    fn burn(e: Env, from: Address, amount: i128) {
+        from.require_auth();
+        require_positive_amount(amount);
+        let bal = crate::balance::balance_of(&e, &from);
+        assert!(bal >= amount, "insufficient balance");
+        crate::balance::decrease_supply(&e, amount);
+        let new_balance = bal - amount;
+        if new_balance == 0 {
+            e.storage().persistent().remove(&DataKey::BalanceOf(from.clone()));
+        } else {
+            e.storage().persistent().set(&DataKey::BalanceOf(from.clone()), &new_balance);
+        }
+    }
+
+    fn clawback(e: Env, admin: Address, from: Address, amount: i128) {
+        admin::check_admin(&e, &admin);
+        require_positive_amount(amount);
+        let bal = crate::balance::balance_of(&e, &from);
+        assert!(bal >= amount, "insufficient balance");
+        crate::balance::decrease_supply(&e, amount);
+        let new_balance = bal - amount;
+        if new_balance == 0 {
+            e.storage().persistent().remove(&DataKey::BalanceOf(from.clone()));
+        } else {
+            e.storage().persistent().set(&DataKey::BalanceOf(from.clone()), &new_balance);
+        }
     }
 
     fn create_escrow(
@@ -410,6 +481,17 @@ impl VeriTixPayTrait for VeriTixPay {
 
     fn escrowed_value_for_depositor(e: Env, depositor: Address) -> i128 {
         escrow::escrowed_value_for_depositor(&e, &depositor)
+    }
+
+    // ── Permit / Nonce ────────────────────────────────────────────────────────
+
+    fn permit(e: Env, user: Address, nonce: u32) {
+        user.require_auth();
+        crate::permit::check_and_increment_nonce(&e, &user, nonce);
+    }
+
+    fn nonces(e: Env, user: Address) -> u32 {
+        crate::permit::read_nonce(&e, &user)
     }
 
     // ── #453: Resolver stats ─────────────────────────────────────────────────
