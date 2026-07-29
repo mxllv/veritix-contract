@@ -27,6 +27,7 @@ pub trait VeriTixPayTrait {
     fn place_lien(e: Env, creditor: Address, escrow_id: u32, lien_amount: i128);
     fn clear_lien(e: Env, caller: Address, escrow_id: u32);
     fn get_escrow(e: Env, escrow_id: u32) -> escrow::EscrowRecord;
+    fn is_escrow_settled(e: Env, escrow_id: u32) -> bool;
 
     // ── Disputes ──────────────────────────────────────────────────────────────
     fn get_disputes_by_claimant(e: Env, claimant: Address) -> Vec<u32>;
