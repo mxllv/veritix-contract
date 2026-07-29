@@ -1,5 +1,5 @@
 use soroban_sdk::{contracttype, token, Address, Bytes, Env, Vec};
-use crate::storage_types::DataKey;
+use crate::storage_types::{DataKey, MAX_ESCROWS_PER_DEPOSITOR};
 
 #[contracttype]
 #[derive(Clone)]
@@ -100,6 +100,16 @@ pub fn create_escrow(
         expiry_ledger > e.ledger().sequence(),
         "expiry_ledger must be in the future"
     );
+
+    // Closes #570: per-depositor escrow count limit
+    let depositor_escrows: Vec<u32> = e
+        .storage()
+        .persistent()
+        .get(&DataKey::DepositorEscrows(depositor.clone()))
+        .unwrap_or(Vec::new(&e));
+    if depositor_escrows.len() >= MAX_ESCROWS_PER_DEPOSITOR {
+        panic!("TooManyEscrows: depositor has reached the active escrow limit");
+    }
 
     let id: u32 = e
         .storage()

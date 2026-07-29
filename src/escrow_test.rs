@@ -548,6 +548,41 @@ fn test_get_escrow_age() {
     assert_eq!(t.client.get_escrow_age(&id), 0);
 }
 
+// ── #570: Per-depositor escrow count limit ───────────────────────────────────
+
+#[test]
+fn test_max_escrows_per_depositor_succeeds_at_limit() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
+
+    for _ in 0..100 {
+        t.client.create_escrow(
+            &t.depositor, &t.beneficiary, &t.token, &1, &expiry, &empty_memo(&t.e),
+        );
+    }
+
+    let list = t.client.get_escrows_by_depositor(&t.depositor);
+    assert_eq!(list.len(), 100);
+}
+
+#[test]
+#[should_panic(expected = "TooManyEscrows: depositor has reached the active escrow limit")]
+fn test_max_escrows_per_depositor_panics_at_101() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
+
+    for _ in 0..100 {
+        t.client.create_escrow(
+            &t.depositor, &t.beneficiary, &t.token, &1, &expiry, &empty_memo(&t.e),
+        );
+    }
+
+    // The 101st escrow must panic
+    t.client.create_escrow(
+        &t.depositor, &t.beneficiary, &t.token, &1, &expiry, &empty_memo(&t.e),
+    );
+}
+
 // ── #452: escrowed_value_for_depositor ────────────────────────────────────────
 
 #[test]
