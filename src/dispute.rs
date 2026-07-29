@@ -87,7 +87,7 @@ pub fn resolve_dispute(e: &Env, resolver: &Address, escrow_id: u32, winner: &Add
         let remaining = record.amount;
         if remaining > 0 {
             transfer_amount = remaining;
-            if mediation_fee_bps > 0 && resolver != e.current_contract_address() {
+            if mediation_fee_bps > 0 && *resolver != e.current_contract_address() {
                 let mediation_fee = remaining * mediation_fee_bps as i128 / 10000;
                 if mediation_fee > 0 {
                     token_client.transfer(&e.current_contract_address(), resolver, &mediation_fee);
@@ -105,7 +105,7 @@ pub fn resolve_dispute(e: &Env, resolver: &Address, escrow_id: u32, winner: &Add
         let refundable = record.amount - record.released_amount;
         if refundable > 0 {
             transfer_amount = refundable;
-            if mediation_fee_bps > 0 && resolver != e.current_contract_address() {
+            if mediation_fee_bps > 0 && *resolver != e.current_contract_address() {
                 let mediation_fee = refundable * mediation_fee_bps as i128 / 10000;
                 if mediation_fee > 0 {
                     token_client.transfer(&e.current_contract_address(), resolver, &mediation_fee);

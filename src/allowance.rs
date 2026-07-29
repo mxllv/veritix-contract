@@ -102,7 +102,6 @@ pub fn spend_allowance(e: &Env, from: &Address, spender: &Address, amount: i128)
     write_allowance(e, from, spender, new_amount, allowance.expiration_ledger);
 }
 
-<<<<<<< HEAD
 pub fn increase_allowance(e: &Env, from: &Address, spender: &Address, amount: i128) {
     from.require_auth();
     assert!(amount > 0, "amount must be positive");
@@ -121,7 +120,9 @@ pub fn decrease_allowance(e: &Env, from: &Address, spender: &Address, amount: i1
     } else {
         let new_amount = current.amount - amount;
         write_allowance(e, from, spender, new_amount, current.expiration_ledger);
-=======
+    }
+}
+
 pub fn revoke_all_allowances(e: &Env, from: &Address) {
     let spenders: soroban_sdk::Vec<Address> = e.storage().persistent()
         .get(&DataKey::AllowanceSpenders(from.clone()))
@@ -150,6 +151,5 @@ pub fn track_spender(e: &Env, from: &Address, spender: &Address) {
     if !found {
         spenders.push_back(spender.clone());
         e.storage().persistent().set(&DataKey::AllowanceSpenders(from.clone()), &spenders);
->>>>>>> main
     }
 }

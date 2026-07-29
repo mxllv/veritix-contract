@@ -41,6 +41,16 @@ pub enum DataKey {
     HolderCount,
     // #574: Permit nonces
     Nonce(Address),
+    // Upstream additions
+    PayeeRecurrings(Address),
+    MediationFeeBps,
+    Holders,
+    BalanceOf(Address),
+    Authorized(Address),
+    AllowanceSpenders(Address),
+    WhitelistEnabled,
+    Whitelisted(Address),
+    Version,
 }
 
 #[contracttype]
