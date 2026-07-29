@@ -95,6 +95,7 @@ pub fn create_split(
 
 pub fn distribute_split(e: Env, caller: Address, split_id: u32) {
     caller.require_auth();
+    crate::pause::require_not_paused(&e);
 
     let mut record = load_record(&e, split_id);
 

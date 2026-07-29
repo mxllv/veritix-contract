@@ -219,6 +219,30 @@ fn test_large_memo_validation() {
     assert!(memo.len() > 64, "memo exceeds 64-byte limit");
 }
 
+#[test]
+fn test_create_escrow_panics_on_memo_too_long() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
+    let memo = make_memo(&t.e, &[b'x'; 65]);
+
+    // Verify that create_escrow panics when memo > MAX_MEMO_BYTES
+    use soroban_sdk::token;
+    let token_client = token::Client::new(&t.e, &t.token);
+    let contract_balance_before = token_client.balance(&t.e.current_contract_address());
+    let depositor_balance_before = token_client.balance(&t.depositor);
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        t.client.create_escrow(
+            &t.depositor, &t.beneficiary, &t.token, &100, &expiry, &memo,
+        );
+    }));
+    assert!(result.is_err(), "create_escrow should panic on memo > MAX_MEMO_BYTES");
+
+    // Verify no tokens were transferred (state rollback)
+    assert_eq!(token_client.balance(&t.e.current_contract_address()), contract_balance_before);
+    assert_eq!(token_client.balance(&t.depositor), depositor_balance_before);
+}
+
 // ── #174: Partial release ─────────────────────────────────────────────────────
 
 #[test]

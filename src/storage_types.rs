@@ -1,5 +1,20 @@
 use soroban_sdk::{contracttype, Address};
 
+// ── TTL constants ────────────────────────────────────────────────────────────
+// Balances: ~1 year (6_310_000 ledgers at ~5s/ledger)
+pub const BALANCE_LIFETIME_THRESHOLD: u32 = 6_310_000;
+// Escrow records: ~1 year
+pub const ESCROW_LIFETIME_THRESHOLD: u32 = 7_884_000;
+// Dispute records: ~6 months from opening
+pub const DISPUTE_LIFETIME_THRESHOLD: u32 = 3_942_000;
+// Recurring records: ~1 year from last execution
+pub const RECURRING_LIFETIME_THRESHOLD: u32 = 6_310_000;
+// Split records: ~90 days from creation
+pub const SPLIT_LIFETIME_THRESHOLD: u32 = 1_555_200;
+
+// ── Memo constants ───────────────────────────────────────────────────────────
+pub const MAX_MEMO_BYTES: u32 = 64;
+
 #[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
@@ -29,32 +44,20 @@ pub enum DataKey {
     TotalFeesCollected,
     SplitCount,
     Split(u32),
-<<<<<<< HEAD
     PayeeRecurrings(Address),
-=======
-<<<<<<< HEAD
     MediationFeeBps,
     Holders,
     DisputeCount(u32),
     MaxDisputes(u32),
-=======
-<<<<<<< HEAD
     Version,
-=======
-<<<<<<< HEAD
     BalanceOf(Address),
     Authorized(Address),
-=======
     AllowanceSpenders(Address),
     WhitelistEnabled,
     Whitelisted(Address),
     AutoRelease(u32),
-    DisputeCount(u32),
-    MaxDisputes(u32),
->>>>>>> main
->>>>>>> main
->>>>>>> main
->>>>>>> main
+    MaxSupply,
+    Paused,
 }
 
 #[contracttype]

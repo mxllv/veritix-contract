@@ -16,6 +16,7 @@ mod multi_escrow;
 mod multi_escrow_test;
 mod recurring;
 mod recurring_test;
+mod pause;
 mod splitter;
 mod splitter_test;
 mod storage_types;
