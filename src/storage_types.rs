@@ -29,6 +29,7 @@ pub enum DataKey {
     TotalFeesCollected,
     SplitCount,
     Split(u32),
+    PayeeRecurrings(Address),
 }
 
 #[contracttype]

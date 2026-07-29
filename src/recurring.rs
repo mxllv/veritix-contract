@@ -15,6 +15,14 @@ pub struct RecurringRecord {
     pub execution_count: u32,
 }
 
+fn track_payee_recurring(e: &Env, payee: &Address, recurring_id: u32) {
+    let mut list: soroban_sdk::Vec<u32> = e.storage().persistent()
+        .get(&DataKey::PayeeRecurrings(payee.clone()))
+        .unwrap_or(soroban_sdk::Vec::new(e));
+    list.push_back(recurring_id);
+    e.storage().persistent().set(&DataKey::PayeeRecurrings(payee.clone()), &list);
+}
+
 pub fn setup_recurring(
     e: &Env,
     payer: Address,
@@ -47,6 +55,7 @@ pub fn setup_recurring(
     e.storage()
         .persistent()
         .set(&DataKey::Recurring(id), &record);
+    track_payee_recurring(e, &record.payee, id);
     e.storage()
         .persistent()
         .set(&DataKey::RecurringCount, &(id + 1));
@@ -174,28 +183,29 @@ pub fn get_recurring_history(e: Env, recurring_id: u32) -> Vec<RecurringPayment>
         &record.total_amount,
     );
 
-
-    
-pub fn get_escrow_age(e: Env, escrow_id: u32) -> u32 {
-    let record = load_record(&e, escrow_id);
-    if record.released || record.refunded {
-        0
-    } else {
-        e.ledger().sequence().saturating_sub(record.created_at_ledger)
-    }
+pub fn amend_recurring(e: &Env, caller: &Address, recurring_id: u32, new_amount: i128, new_interval: u32) {
+    caller.require_auth();
+    assert!(new_amount > 0, "amount must be positive");
+    assert!(new_interval > 0, "interval must be positive");
+    let mut record: RecurringRecord = e.storage().persistent()
+        .get(&DataKey::Recurring(recurring_id))
+        .expect("recurring not found");
+    assert!(record.payer == *caller, "not the payer");
+    assert!(record.active, "recurring is not active");
+    record.amount = new_amount;
+    record.interval = new_interval;
+    e.storage().persistent().set(&DataKey::Recurring(recurring_id), &record);
 }
 
-pub fn topup_escrow(e: Env, depositor: Address, escrow_id: u32, amount: i128) {
-    depositor.require_auth();
-    assert!(amount > 0, "amount must be positive");
-    if e.storage().persistent().has(&DataKey::EscrowDispute(escrow_id)) {
-        panic!("DisputeOpen: cannot top up an escrow under active dispute");
-    }
-    let mut record = load_record(&e, escrow_id);
-    assert!(!record.released && !record.refunded, "escrow already settled");
-    assert!(record.depositor == depositor, "not the depositor");
-    let token_client = token::Client::new(&e, &record.token);
-    token_client.transfer(&depositor, &e.current_contract_address(), &amount);
-    record.amount += amount;
-    save_record(&e, &record);
+pub fn recurring_count_for_payee(e: Env, payee: Address) -> u32 {
+    let list: soroban_sdk::Vec<u32> = e.storage().persistent()
+        .get(&DataKey::PayeeRecurrings(payee))
+        .unwrap_or(soroban_sdk::Vec::new(&e));
+    list.len()
+}
+
+pub fn recurring_ids_for_payee(e: Env, payee: Address) -> soroban_sdk::Vec<u32> {
+    e.storage().persistent()
+        .get(&DataKey::PayeeRecurrings(payee))
+        .unwrap_or(soroban_sdk::Vec::new(&e))
 }

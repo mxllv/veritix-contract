@@ -102,6 +102,11 @@ pub trait VeriTixPayTrait {
     // ── #454: Protocol fee stats ─────────────────────────────────────────────
     fn protocol_fee_stats(e: Env) -> (u32, Address, i128);
     fn emergency_withdraw(e: Env, admin: Address, recipient: Address, token: Address, amount: i128);
+
+    fn amend_recurring(e: Env, caller: Address, recurring_id: u32, new_amount: i128, new_interval: u32);
+    fn recurring_count_for_payee(e: Env, payee: Address) -> u32;
+    fn recurring_ids_for_payee(e: Env, payee: Address) -> Vec<u32>;
+    fn cancel_split(e: Env, caller: Address, split_id: u32);
 }
 
 #[contract]
@@ -399,5 +404,21 @@ impl VeriTixPayTrait for VeriTixPay {
             (soroban_sdk::symbol_short!("emer_wdraw"), admin, recipient),
             amount,
         );
+    }
+
+    fn amend_recurring(e: Env, caller: Address, recurring_id: u32, new_amount: i128, new_interval: u32) {
+        recurring::amend_recurring(&e, &caller, recurring_id, new_amount, new_interval)
+    }
+
+    fn recurring_count_for_payee(e: Env, payee: Address) -> u32 {
+        recurring::recurring_count_for_payee(e, payee)
+    }
+
+    fn recurring_ids_for_payee(e: Env, payee: Address) -> Vec<u32> {
+        recurring::recurring_ids_for_payee(e, payee)
+    }
+
+    fn cancel_split(e: Env, caller: Address, split_id: u32) {
+        crate::splitter::cancel_split(e, caller, split_id)
     }
 }
