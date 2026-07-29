@@ -27,6 +27,8 @@ pub enum DataKey {
     FeeBps,
     TreasuryAddress,
     TotalFeesCollected,
+    SplitCount,
+    Split(u32),
 }
 
 #[contracttype]
