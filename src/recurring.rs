@@ -183,7 +183,6 @@ pub fn get_recurring_history(e: Env, recurring_id: u32) -> Vec<RecurringPayment>
         &record.total_amount,
     );
 
-<<<<<<< HEAD
 pub fn amend_recurring(e: &Env, caller: &Address, recurring_id: u32, new_amount: i128, new_interval: u32) {
     caller.require_auth();
     assert!(new_amount > 0, "amount must be positive");
@@ -210,7 +209,7 @@ pub fn recurring_ids_for_payee(e: Env, payee: Address) -> soroban_sdk::Vec<u32> 
         .get(&DataKey::PayeeRecurrings(payee))
         .unwrap_or(soroban_sdk::Vec::new(&e))
 }
-=======
+
 pub fn cancel_recurring_batch(e: &Env, caller: &Address, recurring_ids: Vec<u32>) {
     caller.require_auth();
     assert!(recurring_ids.len() <= 20, "batch size cannot exceed 20");
@@ -226,4 +225,3 @@ pub fn cancel_recurring_batch(e: &Env, caller: &Address, recurring_ids: Vec<u32>
         }
     }
 }
->>>>>>> main

@@ -95,6 +95,9 @@ pub fn create_escrow(
     }
 
     assert!(amount > 0, "amount must be greater than zero");
+    if amount < crate::storage_types::MIN_ESCROW_AMOUNT {
+        panic!("AmountTooSmall: escrow amount must be at least {} tokens", crate::storage_types::MIN_ESCROW_AMOUNT);
+    }
     // #433: expiry must be strictly in the future
     assert!(
         expiry_ledger > e.ledger().sequence(),
@@ -331,6 +334,7 @@ pub fn place_lien(e: Env, creditor: Address, escrow_id: u32, lien_amount: i128) 
     assert!(!record.released && !record.refunded, "escrow already settled");
     assert!(!record.liened, "only one lien at a time");
     assert!(lien_amount > 0, "lien amount must be positive");
+    assert!(lien_amount <= record.amount, "lien amount exceeds escrow amount");
     
     record.liened = true;
     record.liened_by = creditor;

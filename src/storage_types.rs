@@ -1,5 +1,8 @@
 use soroban_sdk::{contracttype, Address};
 
+/// Minimum escrow amount to prevent spam (1 XLM equivalent in token stroops)
+pub const MIN_ESCROW_AMOUNT: i128 = 10_000_000;
+
 #[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
@@ -29,32 +32,18 @@ pub enum DataKey {
     TotalFeesCollected,
     SplitCount,
     Split(u32),
-<<<<<<< HEAD
     PayeeRecurrings(Address),
-=======
-<<<<<<< HEAD
     MediationFeeBps,
     Holders,
-    DisputeCount(u32),
-    MaxDisputes(u32),
-=======
-<<<<<<< HEAD
     Version,
-=======
-<<<<<<< HEAD
     BalanceOf(Address),
     Authorized(Address),
-=======
     AllowanceSpenders(Address),
     WhitelistEnabled,
     Whitelisted(Address),
     AutoRelease(u32),
     DisputeCount(u32),
     MaxDisputes(u32),
->>>>>>> main
->>>>>>> main
->>>>>>> main
->>>>>>> main
 }
 
 #[contracttype]

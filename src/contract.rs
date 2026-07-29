@@ -1,19 +1,5 @@
-<<<<<<< HEAD
-use soroban_sdk::{contract, contractimpl, Address, Bytes, Env, Vec};
-use crate::{escrow, multi_escrow, allowance, admin, dispute, recurring, balance};
-=======
-<<<<<<< HEAD
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Bytes, Env, String, Vec};
-use crate::{escrow, multi_escrow, allowance, admin, dispute, recurring};
-=======
-use soroban_sdk::{contract, contractimpl, Address, Bytes, Env, Vec};
-<<<<<<< HEAD
-use crate::{freeze, escrow, multi_escrow, allowance, admin, dispute, recurring};
-=======
-use crate::{escrow, multi_escrow, allowance, admin, dispute, recurring, whitelist};
->>>>>>> main
->>>>>>> main
->>>>>>> main
+use crate::{freeze, escrow, multi_escrow, allowance, admin, dispute, recurring, balance, whitelist};
 use crate::storage_types::{DataKey, RecurringPayment, ResolverStats};
 use crate::validation::require_positive_amount;
 
@@ -118,39 +104,21 @@ pub trait VeriTixPayTrait {
     fn protocol_fee_stats(e: Env) -> (u32, Address, i128);
     fn emergency_withdraw(e: Env, admin: Address, recipient: Address, token: Address, amount: i128);
 
-<<<<<<< HEAD
     fn amend_recurring(e: Env, caller: Address, recurring_id: u32, new_amount: i128, new_interval: u32);
     fn recurring_count_for_payee(e: Env, payee: Address) -> u32;
     fn recurring_ids_for_payee(e: Env, payee: Address) -> Vec<u32>;
     fn cancel_split(e: Env, caller: Address, split_id: u32);
-=======
-<<<<<<< HEAD
     fn transfer_escrow_beneficiary(e: Env, depositor: Address, escrow_id: u32, new_beneficiary: Address);
     fn total_holders(e: Env) -> u32;
     fn get_holders(e: Env) -> Vec<Address>;
     fn set_mediation_fee(e: Env, admin: Address, fee_bps: u32);
-    fn raise_dispute(e: Env, caller: Address, escrow_id: u32);
-=======
-<<<<<<< HEAD
     fn version(e: Env) -> soroban_sdk::String;
     fn contract_summary(e: Env) -> ContractSummary;
-}
-
-#[contracttype]
-#[derive(Clone)]
-pub struct ContractSummary {
-    pub admin: Address,
-    pub total_supply: i128,
-    pub escrow_count: u32,
-    pub total_value_locked: i128,
-=======
-<<<<<<< HEAD
     fn spendable_balance(e: Env, account: Address) -> i128;
     fn set_authorized(e: Env, admin: Address, account: Address, authorized: bool);
     fn increase_allowance(e: Env, from: Address, spender: Address, amount: i128);
     fn decrease_allowance(e: Env, from: Address, spender: Address, amount: i128);
     fn burn_from(e: Env, spender: Address, from: Address, amount: i128);
-=======
     fn transfer_with_memo(e: Env, from: Address, to: Address, amount: i128, memo: Bytes);
     fn revoke_all_allowances(e: Env, from: Address);
     fn enable_whitelist(e: Env, admin: Address);
@@ -162,10 +130,15 @@ pub struct ContractSummary {
     fn trigger_auto_release(e: Env, escrow_id: u32);
     fn escrow_between(e: Env, addr1: Address, addr2: Address) -> u32;
     fn cancel_recurring_batch(e: Env, caller: Address, recurring_ids: Vec<u32>);
->>>>>>> main
->>>>>>> main
->>>>>>> main
->>>>>>> main
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct ContractSummary {
+    pub admin: Address,
+    pub total_supply: i128,
+    pub escrow_count: u32,
+    pub total_value_locked: i128,
 }
 
 #[contract]
@@ -251,10 +224,6 @@ impl VeriTixPayTrait for VeriTixPay {
 
     fn set_arbiter(e: Env, arbiter: Address) {
         dispute::set_arbiter(&e, &arbiter)
-    }
-
-    fn raise_dispute(e: Env, caller: Address, escrow_id: u32) {
-        dispute::raise_dispute(&e, &caller, escrow_id)
     }
 
     fn resolve_dispute(e: Env, resolver: Address, escrow_id: u32, winner: Address) {
@@ -465,7 +434,6 @@ impl VeriTixPayTrait for VeriTixPay {
         );
     }
 
-<<<<<<< HEAD
     fn amend_recurring(e: Env, caller: Address, recurring_id: u32, new_amount: i128, new_interval: u32) {
         recurring::amend_recurring(&e, &caller, recurring_id, new_amount, new_interval)
     }
@@ -480,8 +448,8 @@ impl VeriTixPayTrait for VeriTixPay {
 
     fn cancel_split(e: Env, caller: Address, split_id: u32) {
         crate::splitter::cancel_split(e, caller, split_id)
-=======
-<<<<<<< HEAD
+    }
+
     fn topup_escrow(e: Env, depositor: Address, escrow_id: u32, amount: i128) {
         escrow::topup_escrow(e, depositor, escrow_id, amount)
     }
@@ -522,8 +490,8 @@ impl VeriTixPayTrait for VeriTixPay {
         assert!(current_count < max_disputes, "maximum dispute count exceeded");
         e.storage().persistent().set(&DataKey::DisputeCount(escrow_id), &(current_count + 1));
         dispute::raise_dispute(&e, &caller, escrow_id)
-=======
-<<<<<<< HEAD
+    }
+
     fn version(e: Env) -> soroban_sdk::String {
         e.storage().persistent().get(&DataKey::Version).unwrap_or(String::from_str(&e, "1.0.0"))
     }
@@ -534,8 +502,8 @@ impl VeriTixPayTrait for VeriTixPay {
         let escrow_count: u32 = e.storage().persistent().get(&DataKey::EscrowCount).unwrap_or(0);
         let total_value_locked: i128 = e.storage().persistent().get(&DataKey::EscrowValueLocked).unwrap_or(0);
         ContractSummary { admin, total_supply, escrow_count, total_value_locked }
-=======
-<<<<<<< HEAD
+    }
+
     fn spendable_balance(e: Env, account: Address) -> i128 {
         balance::spendable_balance(&e, &account)
     }
@@ -554,7 +522,8 @@ impl VeriTixPayTrait for VeriTixPay {
 
     fn burn_from(e: Env, spender: Address, from: Address, amount: i128) {
         balance::burn_from(&e, &spender, &from, amount)
-=======
+    }
+
     fn transfer_with_memo(e: Env, from: Address, to: Address, amount: i128, memo: Bytes) {
         from.require_auth();
         assert!(amount > 0, "amount must be positive");
@@ -593,9 +562,5 @@ impl VeriTixPayTrait for VeriTixPay {
 
     fn cancel_recurring_batch(e: Env, caller: Address, recurring_ids: Vec<u32>) {
         recurring::cancel_recurring_batch(&e, &caller, recurring_ids)
->>>>>>> main
->>>>>>> main
->>>>>>> main
->>>>>>> main
     }
 }

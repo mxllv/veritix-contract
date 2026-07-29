@@ -504,6 +504,41 @@ fn test_get_escrows_batch() {
     assert!(batch.get(2).unwrap().is_none());
 }
 
+// ── #569: Minimum escrow amount ─────────────────────────────────────────────
+
+#[test]
+fn test_create_escrow_at_min_amount_succeeds() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
+
+    let id = t.client.create_escrow(
+        &t.depositor,
+        &t.beneficiary,
+        &t.token,
+        &crate::storage_types::MIN_ESCROW_AMOUNT,
+        &expiry,
+        &empty_memo(&t.e),
+    );
+    assert_eq!(id, 0);
+    assert_eq!(t.client.escrowed_total(), crate::storage_types::MIN_ESCROW_AMOUNT);
+}
+
+#[test]
+#[should_panic(expected = "AmountTooSmall")]
+fn test_create_escrow_below_min_amount_panics() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
+
+    t.client.create_escrow(
+        &t.depositor,
+        &t.beneficiary,
+        &t.token,
+        &(crate::storage_types::MIN_ESCROW_AMOUNT - 1),
+        &expiry,
+        &empty_memo(&t.e),
+    );
+}
+
 #[test]
 fn test_is_escrow_settled() {
     let t = setup();
