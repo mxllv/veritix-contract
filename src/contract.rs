@@ -102,6 +102,10 @@ pub trait VeriTixPayTrait {
     // ── #454: Protocol fee stats ─────────────────────────────────────────────
     fn protocol_fee_stats(e: Env) -> (u32, Address, i128);
     fn emergency_withdraw(e: Env, admin: Address, recipient: Address, token: Address, amount: i128);
+
+    fn trigger_auto_release(e: Env, escrow_id: u32);
+    fn escrow_between(e: Env, addr1: Address, addr2: Address) -> u32;
+    fn cancel_recurring_batch(e: Env, caller: Address, recurring_ids: Vec<u32>);
 }
 
 #[contract]
@@ -399,5 +403,17 @@ impl VeriTixPayTrait for VeriTixPay {
             (soroban_sdk::symbol_short!("emer_wdraw"), admin, recipient),
             amount,
         );
+    }
+
+    fn trigger_auto_release(e: Env, escrow_id: u32) {
+        escrow::trigger_auto_release(e, escrow_id)
+    }
+
+    fn escrow_between(e: Env, addr1: Address, addr2: Address) -> u32 {
+        escrow::escrow_between(e, addr1, addr2)
+    }
+
+    fn cancel_recurring_batch(e: Env, caller: Address, recurring_ids: Vec<u32>) {
+        recurring::cancel_recurring_batch(&e, &caller, recurring_ids)
     }
 }
