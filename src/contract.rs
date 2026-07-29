@@ -111,6 +111,9 @@ pub trait VeriTixPayTrait {
     fn remove_from_whitelist(e: Env, admin: Address, account: Address);
     fn is_whitelisted(e: Env, account: Address) -> bool;
     fn set_protocol_fee(e: Env, admin: Address, fee_bps: u32, treasury: Address);
+    fn trigger_auto_release(e: Env, escrow_id: u32);
+    fn escrow_between(e: Env, addr1: Address, addr2: Address) -> u32;
+    fn cancel_recurring_batch(e: Env, caller: Address, recurring_ids: Vec<u32>);
 }
 
 #[contract]
@@ -436,5 +439,17 @@ impl VeriTixPayTrait for VeriTixPay {
         assert!(fee_bps < 10000, "fee_bps must be less than 10000");
         e.storage().persistent().set(&DataKey::FeeBps, &fee_bps);
         e.storage().persistent().set(&DataKey::TreasuryAddress, &treasury);
+    }
+
+    fn trigger_auto_release(e: Env, escrow_id: u32) {
+        escrow::trigger_auto_release(e, escrow_id)
+    }
+
+    fn escrow_between(e: Env, addr1: Address, addr2: Address) -> u32 {
+        escrow::escrow_between(e, addr1, addr2)
+    }
+
+    fn cancel_recurring_batch(e: Env, caller: Address, recurring_ids: Vec<u32>) {
+        recurring::cancel_recurring_batch(&e, &caller, recurring_ids)
     }
 }
