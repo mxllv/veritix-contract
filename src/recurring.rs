@@ -15,14 +15,6 @@ pub struct RecurringRecord {
     pub execution_count: u32,
 }
 
-fn track_payee_recurring(e: &Env, payee: &Address, recurring_id: u32) {
-    let mut list: soroban_sdk::Vec<u32> = e.storage().persistent()
-        .get(&DataKey::PayeeRecurrings(payee.clone()))
-        .unwrap_or(soroban_sdk::Vec::new(e));
-    list.push_back(recurring_id);
-    e.storage().persistent().set(&DataKey::PayeeRecurrings(payee.clone()), &list);
-}
-
 pub fn setup_recurring(
     e: &Env,
     payer: Address,
@@ -55,73 +47,11 @@ pub fn setup_recurring(
     e.storage()
         .persistent()
         .set(&DataKey::Recurring(id), &record);
-    track_payee_recurring(e, &record.payee, id);
     e.storage()
         .persistent()
         .set(&DataKey::RecurringCount, &(id + 1));
     id
 }
-
-
-#[test]
-fn test_recurring_history_grows() {
-    let e = Env::default();
-    e.mock_all_auths();
-
-    let caller = soroban_sdk::Address::generate(&e);
-    let recurring_id = 1;
-    let amount = 500;
-    
-    record_recurring_execution(e.clone(), caller.clone(), recurring_id, amount);
-    
-    let history = get_recurring_history(e.clone(), recurring_id);
-    assert_eq!(history.len(), 1);
-    assert_eq!(history.get(0).unwrap().amount, amount);
-    assert_eq!(history.get(0).unwrap().execution_ledger, e.ledger().sequence());
-    
-    // Simulate next execution
-    e.ledger().with_mut(|l| l.sequence_number = e.ledger().sequence() + 10);
-    record_recurring_execution(e.clone(), caller.clone(), recurring_id, amount);
-    
-    let history = get_recurring_history(e.clone(), recurring_id);
-    assert_eq!(history.len(), 2);
-    assert_eq!(history.get(1).unwrap().amount, amount);
-    assert_eq!(history.get(1).unwrap().execution_ledger, e.ledger().sequence());
-}
-
-#[test]
-#[should_panic(expected = "recurring is not active")]
-fn test_max_executions_deactivates() {
-    use soroban_sdk::{Address, token};
-    use crate::recurring::{setup_recurring, execute_recurring};
-    use crate::storage_types::DataKey;
-
-    let e = Env::default();
-    e.mock_all_auths();
-
-    let payer = Address::generate(&e);
-    let payee = Address::generate(&e);
-    // Create a test token
-    let token = e.register_stellar_asset_contract(Address::generate(&e));
-    let token_client = token::Client::new(&e, &token);
-    
-    // Mint some tokens to the payer so transfers work
-    token_client.mint(&payer, &1000);
-    
-    let amount = 100;
-    let interval = 100; // 100 ledgers between executions
-    let max_executions = 3;
-
-    // Setup recurring payment with max 3 executions
-    let recurring_id = setup_recurring(
-        &e,
-        payer.clone(),
-        payee.clone(),
-        token.clone(),
-        amount,
-        interval,
-        max_executions,
-    );
 
 pub fn execute_recurring(e: &Env, recurring_id: u32) {
     let mut record: RecurringRecord = e
@@ -176,41 +106,6 @@ pub fn get_recurring_history(e: Env, recurring_id: u32) -> Vec<RecurringPayment>
         .unwrap_or(Vec::new(&e))
 }
 
-   let token_client = soroban_sdk::token::Client::new(&e, &record.token);
-    token_client.transfer(
-        &e.current_contract_address(),
-        &record.depositor,
-        &record.total_amount,
-    );
-
-<<<<<<< HEAD
-pub fn amend_recurring(e: &Env, caller: &Address, recurring_id: u32, new_amount: i128, new_interval: u32) {
-    caller.require_auth();
-    assert!(new_amount > 0, "amount must be positive");
-    assert!(new_interval > 0, "interval must be positive");
-    let mut record: RecurringRecord = e.storage().persistent()
-        .get(&DataKey::Recurring(recurring_id))
-        .expect("recurring not found");
-    assert!(record.payer == *caller, "not the payer");
-    assert!(record.active, "recurring is not active");
-    record.amount = new_amount;
-    record.interval = new_interval;
-    e.storage().persistent().set(&DataKey::Recurring(recurring_id), &record);
-}
-
-pub fn recurring_count_for_payee(e: Env, payee: Address) -> u32 {
-    let list: soroban_sdk::Vec<u32> = e.storage().persistent()
-        .get(&DataKey::PayeeRecurrings(payee))
-        .unwrap_or(soroban_sdk::Vec::new(&e));
-    list.len()
-}
-
-pub fn recurring_ids_for_payee(e: Env, payee: Address) -> soroban_sdk::Vec<u32> {
-    e.storage().persistent()
-        .get(&DataKey::PayeeRecurrings(payee))
-        .unwrap_or(soroban_sdk::Vec::new(&e))
-}
-=======
 pub fn cancel_recurring_batch(e: &Env, caller: &Address, recurring_ids: Vec<u32>) {
     caller.require_auth();
     assert!(recurring_ids.len() <= 20, "batch size cannot exceed 20");
@@ -226,4 +121,3 @@ pub fn cancel_recurring_batch(e: &Env, caller: &Address, recurring_ids: Vec<u32>
         }
     }
 }
->>>>>>> main
