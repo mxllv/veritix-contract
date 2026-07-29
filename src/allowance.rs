@@ -41,3 +41,24 @@ pub fn spend_allowance(e: &Env, from: &Address, spender: &Address, amount: i128)
     let new_amount = allowance.amount - amount;
     write_allowance(e, from, spender, new_amount, allowance.expiration_ledger);
 }
+
+pub fn increase_allowance(e: &Env, from: &Address, spender: &Address, amount: i128) {
+    from.require_auth();
+    assert!(amount > 0, "amount must be positive");
+    let current = read_allowance(e, from, spender);
+    let new_amount = current.amount + amount;
+    track_spender(e, from, spender);
+    write_allowance(e, from, spender, new_amount, current.expiration_ledger);
+}
+
+pub fn decrease_allowance(e: &Env, from: &Address, spender: &Address, amount: i128) {
+    from.require_auth();
+    assert!(amount > 0, "amount must be positive");
+    let current = read_allowance(e, from, spender);
+    if current.amount <= amount {
+        write_allowance(e, from, spender, 0, current.expiration_ledger);
+    } else {
+        let new_amount = current.amount - amount;
+        write_allowance(e, from, spender, new_amount, current.expiration_ledger);
+    }
+}

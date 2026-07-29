@@ -1,5 +1,5 @@
 use soroban_sdk::{contract, contractimpl, Address, Bytes, Env, Vec};
-use crate::{escrow, multi_escrow, allowance, admin, dispute, recurring};
+use crate::{freeze, escrow, multi_escrow, allowance, admin, dispute, recurring};
 use crate::storage_types::{DataKey, RecurringPayment, ResolverStats};
 use crate::validation::require_positive_amount;
 
@@ -102,6 +102,12 @@ pub trait VeriTixPayTrait {
     // ── #454: Protocol fee stats ─────────────────────────────────────────────
     fn protocol_fee_stats(e: Env) -> (u32, Address, i128);
     fn emergency_withdraw(e: Env, admin: Address, recipient: Address, token: Address, amount: i128);
+
+    fn spendable_balance(e: Env, account: Address) -> i128;
+    fn set_authorized(e: Env, admin: Address, account: Address, authorized: bool);
+    fn increase_allowance(e: Env, from: Address, spender: Address, amount: i128);
+    fn decrease_allowance(e: Env, from: Address, spender: Address, amount: i128);
+    fn burn_from(e: Env, spender: Address, from: Address, amount: i128);
 }
 
 #[contract]
@@ -399,5 +405,25 @@ impl VeriTixPayTrait for VeriTixPay {
             (soroban_sdk::symbol_short!("emer_wdraw"), admin, recipient),
             amount,
         );
+    }
+
+    fn spendable_balance(e: Env, account: Address) -> i128 {
+        balance::spendable_balance(&e, &account)
+    }
+
+    fn set_authorized(e: Env, admin: Address, account: Address, authorized: bool) {
+        balance::set_authorized(&e, &admin, &account, authorized)
+    }
+
+    fn increase_allowance(e: Env, from: Address, spender: Address, amount: i128) {
+        allowance::increase_allowance(&e, &from, &spender, amount)
+    }
+
+    fn decrease_allowance(e: Env, from: Address, spender: Address, amount: i128) {
+        allowance::decrease_allowance(&e, &from, &spender, amount)
+    }
+
+    fn burn_from(e: Env, spender: Address, from: Address, amount: i128) {
+        balance::burn_from(&e, &spender, &from, amount)
     }
 }
