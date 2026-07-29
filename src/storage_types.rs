@@ -29,6 +29,9 @@ pub enum DataKey {
     TotalFeesCollected,
     SplitCount,
     Split(u32),
+    AllowanceSpenders(Address),
+    WhitelistEnabled,
+    Whitelisted(Address),
 }
 
 #[contracttype]
