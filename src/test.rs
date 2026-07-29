@@ -76,3 +76,90 @@ fn test_emergency_withdraw_cannot_touch_escrow_funds() {
     let recipient = Address::generate(&e);
     client.emergency_withdraw(&admin, &recipient, &token, &501);
 }
+
+#[test]
+fn test_full_event_lifecycle() {
+    let e = Env::default();
+    e.mock_all_auths();
+
+    // Setup contract and admin
+    let contract_id = e.register_contract(None, VeriTixPay);
+    let client = VeriTixPayClient::new(&e, &contract_id);
+    
+    let admin = Address::generate(&e);
+    client.initialize(&admin);
+
+    // Create token and mint 1000 VTX to buyer
+    let buyer = Address::generate(&e);
+    let organizer = Address::generate(&e);
+    let artist = Address::generate(&e);
+    let platform = Address::generate(&e);
+    
+    let token = create_token_contract(&e, &admin);
+    let token_admin_client = token::StellarAssetClient::new(&e, &token);
+    let token_client = token::Client::new(&e, &token);
+    
+    token_admin_client.mint(&buyer, &1000);
+    
+    // Verify initial buyer balance
+    assert_eq!(token_client.balance(&buyer), 1000);
+    assert_eq!(token_client.balance(&contract_id), 0);
+    
+    // Record initial total supply
+    let initial_total_supply = 1000; // Minted 1000 tokens
+    
+    // Buyer calls create_escrow(buyer, organizer, 100, event_ledger)
+    let event_ledger = e.ledger().sequence() + 100;
+    let ticket_ref = soroban_sdk::Bytes::from_slice(&e, b"ticket_ref");
+    let escrow_id = client.ticket_escrow(&buyer, &organizer, &token, &100, &event_ledger, &ticket_ref);
+    
+    // Confirm buyer balance reduced by 100, contract holds 100
+    assert_eq!(token_client.balance(&buyer), 900);
+    assert_eq!(token_client.balance(&contract_id), 100);
+    assert_eq!(client.escrowed_total(), 100);
+    
+    // Advance ledger past event_ledger
+    e.ledger().with_mut(|l| l.sequence_number = event_ledger + 10);
+    
+    // Organizer calls release_escrow
+    client.release_escrow(&organizer, &escrow_id);
+    
+    // Confirm organizer received 100
+    assert_eq!(token_client.balance(&organizer), 100);
+    assert_eq!(token_client.balance(&contract_id), 0);
+    assert_eq!(client.escrowed_total(), 0);
+    
+    // Organizer calls create_split([organizer 8000bps, artist 1500bps, platform 500bps], 100)
+    let split_event_ledger = e.ledger().sequence() + 100;
+    let recipients = soroban_sdk::Vec::from_array(
+        &e,
+        [
+            (organizer.clone(), 8000),
+            (artist.clone(), 1500),
+            (platform.clone(), 500),
+        ],
+    );
+    let split_id = crate::splitter::create_split(
+        e.clone(),
+        organizer.clone(),
+        recipients,
+        token.clone(),
+        100,
+        split_event_ledger,
+    );
+    
+    // Organizer calls distribute(split_id)
+    crate::splitter::distribute_split(e.clone(), organizer.clone(), split_id);
+    
+    // Confirm: organizer 80, artist 15, platform 5
+    assert_eq!(token_client.balance(&organizer), 80);
+    assert_eq!(token_client.balance(&artist), 15);
+    assert_eq!(token_client.balance(&platform), 5);
+    
+    // Assert read_total_supply unchanged throughout
+    // Total supply should still be 1000 (buyer 900 + organizer 80 + artist 15 + platform 5 = 1000)
+    assert_eq!(token_client.balance(&buyer) + token_client.balance(&organizer) + token_client.balance(&artist) + token_client.balance(&platform), initial_total_supply);
+    
+    // Assert contract balance is 0 after all operations
+    assert_eq!(token_client.balance(&contract_id), 0);
+}
