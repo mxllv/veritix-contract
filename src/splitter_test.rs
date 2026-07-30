@@ -92,7 +92,7 @@ mod tests {
         assert!(events.iter().any(|event| {
             event
                 .topics
-                .contains(&soroban_sdk::symbol_short!("split_repl").into())
+                .contains(&soroban_sdk::symbol_short!("splt_rpl").into())
         }));
     }
 

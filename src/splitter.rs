@@ -112,7 +112,7 @@ pub fn distribute_split(e: Env, caller: Address, split_id: u32) {
     let token_client = soroban_sdk::token::Client::new(&e, &record.token);
     for i in 0..record.recipients.len() {
         let (recipient, bps) = record.recipients.get(i).unwrap();
-        let amount = record.total_amount * *bps as i128 / 10000;
+        let amount = record.total_amount * bps as i128 / 10000;
         token_client.transfer(&e.current_contract_address(), recipient, &amount);
     }
 }
@@ -153,9 +153,9 @@ pub fn replace_split_recipient(e: Env, sender: Address, split_id: u32, old_recip
     let mut old_bps: u32 = 0;
     for i in 0..record.recipients.len() {
         let (addr, bps) = record.recipients.get(i).unwrap();
-        if addr == &old_recipient {
-            found_index = Some(i);
-            old_bps = *bps;
+        if addr == old_recipient {
+            found_index = Some(i as usize);
+            old_bps = bps;
             break;
         }
     }
@@ -164,14 +164,14 @@ pub fn replace_split_recipient(e: Env, sender: Address, split_id: u32, old_recip
     // Verify new_recipient is not already in the list (no duplicates)
     for i in 0..record.recipients.len() {
         let (addr, _) = record.recipients.get(i).unwrap();
-        if addr == &new_recipient {
+        if addr == new_recipient {
             panic!("new recipient is already in the split");
         }
     }
 
     // Replace in place, preserving share_bps
     let index = found_index.unwrap();
-    record.recipients.set(index, (new_recipient.clone(), old_bps));
+    record.recipients.set(index as u32, (new_recipient.clone(), old_bps));
 
     // Save the updated record
     save_record(&e, &record);
@@ -179,7 +179,7 @@ pub fn replace_split_recipient(e: Env, sender: Address, split_id: u32, old_recip
     // Emit the split_repl event
     e.events().publish(
         (
-            soroban_sdk::symbol_short!("split_repl"),
+            soroban_sdk::symbol_short!("splt_rpl"),
             split_id,
             old_recipient,
             new_recipient,

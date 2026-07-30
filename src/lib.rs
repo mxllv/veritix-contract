@@ -1,5 +1,6 @@
 #![no_std]
 #![allow(dead_code)]
+#![allow(deprecated)]
 
 mod admin;
 mod admin_test;
@@ -14,6 +15,7 @@ mod escrow_test;
 mod freeze;
 mod multi_escrow;
 mod multi_escrow_test;
+mod permit;
 mod recurring;
 mod recurring_test;
 mod splitter;
