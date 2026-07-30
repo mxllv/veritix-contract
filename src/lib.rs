@@ -1,5 +1,6 @@
 #![no_std]
 #![allow(dead_code)]
+#![allow(deprecated)]
 
 mod admin;
 mod admin_test;
@@ -14,6 +15,7 @@ mod escrow_test;
 mod freeze;
 mod multi_escrow;
 mod multi_escrow_test;
+mod permit;
 mod recurring;
 mod recurring_test;
 mod pause;
@@ -22,11 +24,7 @@ mod splitter_test;
 mod storage_types;
 #[cfg(test)]
 mod test;
-<<<<<<< HEAD
+mod validation;
 mod version_test;
 mod contract_summary;
-mod validation;
-=======
-mod validation;
 mod whitelist;
->>>>>>> main

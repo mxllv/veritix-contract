@@ -143,4 +143,3 @@ fn test_is_recurring_active() {
     // Should be inactive after max executions
     assert!(!client.is_recurring_active(&recurring_id));
 }
-}
