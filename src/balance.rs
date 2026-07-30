@@ -5,9 +5,17 @@ pub fn read_supply(e: &Env) -> i128 {
     e.storage().persistent().get(&DataKey::TotalSupply).unwrap_or(0)
 }
 
+pub fn read_max_supply(e: &Env) -> i128 {
+    e.storage().persistent().get(&DataKey::MaxSupply).unwrap_or(0)
+}
+
 pub fn increase_supply(e: &Env, amount: i128) {
     let supply = read_supply(e);
     let new_supply = supply.checked_add(amount).expect("supply overflow");
+    let max = read_max_supply(e);
+    if max > 0 && new_supply > max {
+        panic!("SupplyCap: minting would exceed max supply of {}", max);
+    }
     e.storage().persistent().set(&DataKey::TotalSupply, &new_supply);
 }
 

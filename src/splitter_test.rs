@@ -186,6 +186,30 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "ContractPaused")]
+    fn test_distribute_panics_when_contract_paused() {
+        let t = setup();
+        let event_ledger = t.e.ledger().sequence() + 1000;
+
+        // Create split
+        let recipients = Vec::from_array(&t.e, [(t.recipient1.clone(), 6000), (t.recipient2.clone(), 4000)]);
+        let split_id = crate::splitter::create_split(
+            t.e.clone(),
+            t.sender.clone(),
+            recipients,
+            t.token.clone(),
+            1000,
+            event_ledger,
+        );
+
+        // Pause the contract
+        crate::pause::set_paused(&t.e, &t.sender, true);
+
+        // Try to distribute while paused — should panic
+        crate::splitter::distribute_split(t.e.clone(), t.sender.clone(), split_id);
+    }
+
+    #[test]
     #[should_panic(expected = "split has been cancelled")]
     fn test_replace_split_recipient_cancelled() {
         let t = setup();

@@ -1,5 +1,5 @@
 use soroban_sdk::{contracttype, token, Address, Bytes, Env, Vec};
-use crate::storage_types::DataKey;
+use crate::storage_types::{DataKey, MAX_MEMO_BYTES};
 
 #[contracttype]
 #[derive(Clone)]
@@ -155,8 +155,8 @@ pub fn create_escrow(
     }
 
     // #175: enforce memo length limit with the exact panic string required
-    if memo.len() > 64 {
-        panic!("MemoTooLong: memo cannot exceed 64 bytes");
+    if memo.len() > MAX_MEMO_BYTES {
+        panic!("MemoTooLong: memo cannot exceed {} bytes", MAX_MEMO_BYTES);
     }
 
     assert!(amount > 0, "amount must be greater than zero");

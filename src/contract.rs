@@ -34,6 +34,7 @@ fn track_holder_for_airdrop(e: &Env, addr: &Address) {
 
 pub trait VeriTixPayTrait {
     fn initialize(e: Env, admin: Address);
+    fn initialize_with_max_supply(e: Env, admin: Address, max_supply: i128);
 
     // ── Escrow ────────────────────────────────────────────────────────────────
     fn create_escrow(
@@ -125,6 +126,10 @@ pub trait VeriTixPayTrait {
     // ── #452: Depositor escrowed value ───────────────────────────────────────
     fn escrowed_value_for_depositor(e: Env, depositor: Address) -> i128;
 
+    // ── Pause ─────────────────────────────────────────────────────────────────
+    fn set_paused(e: Env, admin: Address, paused: bool);
+    fn is_paused(e: Env) -> bool;
+
     // ── #453: Resolver stats ─────────────────────────────────────────────────
     fn resolver_stats(e: Env, resolver: Address) -> ResolverStats;
 
@@ -182,6 +187,17 @@ impl VeriTixPayTrait for VeriTixPay {
         }
 
         env.storage().persistent().set(&DataKey::Admin, &admin);
+    }
+
+    fn initialize_with_max_supply(env: Env, admin: Address, max_supply: i128) {
+        admin::validate_admin_address(&env, &admin);
+
+        if env.storage().persistent().has(&DataKey::Admin) {
+            panic!("AlreadyInitialized: contract state is locked");
+        }
+
+        env.storage().persistent().set(&DataKey::Admin, &admin);
+        env.storage().persistent().set(&DataKey::MaxSupply, &max_supply);
     }
 
     fn create_escrow(
@@ -415,6 +431,16 @@ impl VeriTixPayTrait for VeriTixPay {
 
     fn escrowed_value_for_depositor(e: Env, depositor: Address) -> i128 {
         escrow::escrowed_value_for_depositor(&e, &depositor)
+    }
+
+    // ── Pause ─────────────────────────────────────────────────────────────────
+
+    fn set_paused(e: Env, admin: Address, paused: bool) {
+        crate::pause::set_paused(&e, &admin, paused);
+    }
+
+    fn is_paused(e: Env) -> bool {
+        e.storage().persistent().get::<_, bool>(&DataKey::Paused).unwrap_or(false)
     }
 
     // ── #453: Resolver stats ─────────────────────────────────────────────────
