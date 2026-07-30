@@ -8,3 +8,9 @@ e2e-test:
 smoke-test:
 	@echo "Running testnet smoke test..."
 	@bash scripts/smoke_test.sh
+
+# Closes #567: install pre-commit hooks for cargo fmt and clippy.
+install-hooks:
+	cp .hooks/pre-commit .git/hooks/pre-commit
+	chmod +x .git/hooks/pre-commit
+	@echo "Pre-commit hook installed!"

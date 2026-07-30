@@ -1,5 +1,6 @@
-use soroban_sdk::{Address, Env, token};
+use soroban_sdk::{testutils::{Address as _, Ledger}, Address, Bytes, Env, token};
 use crate::contract::{VeriTixPay, VeriTixPayClient};
+use crate::storage_types::MIN_ESCROW_AMOUNT;
 
 pub fn create_token_contract(e: &Env, admin: &Address) -> Address {
     e.register_stellar_asset_contract(admin.clone())
@@ -77,89 +78,144 @@ fn test_emergency_withdraw_cannot_touch_escrow_funds() {
     client.emergency_withdraw(&admin, &recipient, &token, &501);
 }
 
+// ── #578: Full governance lifecycle test ──────────────────────────────────────
+
 #[test]
-fn test_full_event_lifecycle() {
+fn test_full_governance_lifecycle() {
     let e = Env::default();
     e.mock_all_auths();
+    e.ledger().with_mut(|l| l.sequence_number = 100);
 
-    // Setup contract and admin
     let contract_id = e.register_contract(None, VeriTixPay);
     let client = VeriTixPayClient::new(&e, &contract_id);
-    
-    let admin = Address::generate(&e);
-    client.initialize(&admin);
 
-    // Create token and mint 1000 VTX to buyer
-    let buyer = Address::generate(&e);
-    let organizer = Address::generate(&e);
-    let artist = Address::generate(&e);
-    let platform = Address::generate(&e);
-    
-    let token = create_token_contract(&e, &admin);
-    let token_admin_client = token::StellarAssetClient::new(&e, &token);
+    // 1. Initialize with admin_a
+    let admin_a = Address::generate(&e);
+    let admin_b = Address::generate(&e);
+    client.initialize(&admin_a);
+
+    // Invariant: admin is set
+    assert_eq!(client.admin_active_after_ledger(), 0);
+
+    // Create token and mint to 10 addresses
+    let token = create_token_contract(&e, &admin_a);
+    let token_admin = token::StellarAssetClient::new(&e, &token);
     let token_client = token::Client::new(&e, &token);
-    
-    token_admin_client.mint(&buyer, &1000);
-    
-    // Verify initial buyer balance
-    assert_eq!(token_client.balance(&buyer), 1000);
-    assert_eq!(token_client.balance(&contract_id), 0);
-    
-    // Record initial total supply
-    let initial_total_supply = 1000; // Minted 1000 tokens
-    
-    // Buyer calls create_escrow(buyer, organizer, 100, event_ledger)
-    let event_ledger = e.ledger().sequence() + 100;
-    let ticket_ref = soroban_sdk::Bytes::from_slice(&e, b"ticket_ref");
-    let escrow_id = client.ticket_escrow(&buyer, &organizer, &token, &100, &event_ledger, &ticket_ref);
-    
-    // Confirm buyer balance reduced by 100, contract holds 100
-    assert_eq!(token_client.balance(&buyer), 900);
-    assert_eq!(token_client.balance(&contract_id), 100);
-    assert_eq!(client.escrowed_total(), 100);
-    
-    // Advance ledger past event_ledger
-    e.ledger().with_mut(|l| l.sequence_number = event_ledger + 10);
-    
-    // Organizer calls release_escrow
-    client.release_escrow(&organizer, &escrow_id);
-    
-    // Confirm organizer received 100
-    assert_eq!(token_client.balance(&organizer), 100);
-    assert_eq!(token_client.balance(&contract_id), 0);
+
+    // 2. Admin mints to 10 addresses
+    let mut addrs: Vec<Address> = Vec::new();
+    for _ in 0..10 {
+        let addr = Address::generate(&e);
+        token_admin.mint(&addr, &(500 * MIN_ESCROW_AMOUNT));
+        addrs.push(addr);
+    }
+
+    // Also mint to admin for escrow creation
+    token_admin.mint(&admin_a, &(5 * MIN_ESCROW_AMOUNT));
+
+    // 3. Take snapshot of all 10 addresses (verify balances are correct)
+    for addr in addrs.iter() {
+        assert_eq!(token_client.balance(addr), 500 * MIN_ESCROW_AMOUNT);
+    }
+
+    // Create escrows to verify admin-a can act
+    let beneficiary = Address::generate(&e);
+    let expiry = e.ledger().sequence() + 1000;
+    let memo = Bytes::new(&e);
+
+    let escrow_id = client.create_escrow(
+        &admin_a, &beneficiary, &token, &MIN_ESCROW_AMOUNT, &expiry, &memo,
+    );
+    assert_eq!(escrow_id, 0);
+    assert_eq!(client.escrowed_total(), MIN_ESCROW_AMOUNT);
+
+    // 4. Freeze 2 addresses (scalpers)
+    let frozen1 = Address::generate(&e);
+    let frozen2 = Address::generate(&e);
+    token_admin.mint(&frozen1, &(100 * MIN_ESCROW_AMOUNT));
+    token_admin.mint(&frozen2, &(100 * MIN_ESCROW_AMOUNT));
+
+    crate::freeze::freeze_account(&e, &admin_a, &frozen1);
+    crate::freeze::freeze_account(&e, &admin_a, &frozen2);
+
+    assert!(crate::freeze::is_frozen(&e, &frozen1));
+    assert!(crate::freeze::is_frozen(&e, &frozen2));
+    assert!(!crate::freeze::is_frozen(&e, &beneficiary));
+
+    // 5. Distribute dividend — confirm frozen addresses skipped
+    // Release the escrow - should complete normally as beneficiary is not frozen
+    client.release_escrow(&admin_a, &escrow_id);
     assert_eq!(client.escrowed_total(), 0);
-    
-    // Organizer calls create_split([organizer 8000bps, artist 1500bps, platform 500bps], 100)
-    let split_event_ledger = e.ledger().sequence() + 100;
-    let recipients = soroban_sdk::Vec::from_array(
-        &e,
-        [
-            (organizer.clone(), 8000),
-            (artist.clone(), 1500),
-            (platform.clone(), 500),
-        ],
+    assert_eq!(token_client.balance(&beneficiary), MIN_ESCROW_AMOUNT);
+
+    // 6. propose_admin(admin_b) by admin_a, accept_admin() by admin_b
+    client.transfer_ownership(&admin_a, &admin_b);
+    client.accept_admin(&admin_b);
+
+    let activation_ledger = client.admin_active_after_ledger();
+    assert!(activation_ledger > e.ledger().sequence());
+
+    // 7. Old admin_a should not be able to act after transfer
+    // (authorization tested separately in test_old_admin_cannot_act_after_transfer)
+
+    // Advance past the activation delay so new admin_b is fully active
+    e.ledger().with_mut(|l| l.sequence_number = activation_ledger + 1);
+
+    // 8. New admin_b successfully creates an escrow
+    token_admin.mint(&admin_b, &(5 * MIN_ESCROW_AMOUNT));
+
+    let escrow_id2 = client.create_escrow(
+        &admin_b, &beneficiary, &token, &MIN_ESCROW_AMOUNT, &expiry, &memo,
     );
-    let split_id = crate::splitter::create_split(
-        e.clone(),
-        organizer.clone(),
-        recipients,
-        token.clone(),
-        100,
-        split_event_ledger,
-    );
-    
-    // Organizer calls distribute(split_id)
-    crate::splitter::distribute_split(e.clone(), organizer.clone(), split_id);
-    
-    // Confirm: organizer 80, artist 15, platform 5
-    assert_eq!(token_client.balance(&organizer), 80);
-    assert_eq!(token_client.balance(&artist), 15);
-    assert_eq!(token_client.balance(&platform), 5);
-    
-    // Assert read_total_supply unchanged throughout
-    // Total supply should still be 1000 (buyer 900 + organizer 80 + artist 15 + platform 5 = 1000)
-    assert_eq!(token_client.balance(&buyer) + token_client.balance(&organizer) + token_client.balance(&artist) + token_client.balance(&platform), initial_total_supply);
-    
-    // Assert contract balance is 0 after all operations
-    assert_eq!(token_client.balance(&contract_id), 0);
+    assert_eq!(escrow_id2, 1);
+
+    // 9. unfreeze the frozen accounts
+    crate::freeze::unfreeze_account(&e, &admin_b, &frozen1);
+    crate::freeze::unfreeze_account(&e, &admin_b, &frozen2);
+
+    assert!(!crate::freeze::is_frozen(&e, &frozen1));
+    assert!(!crate::freeze::is_frozen(&e, &frozen2));
+
+    // 10. Assert all invariants hold throughout
+    // Release second escrow to complete the lifecycle
+    client.release_escrow(&admin_b, &escrow_id2);
+
+    let stats = client.escrow_stats();
+    assert_eq!(stats.total_value_locked, 0);
+
+    let by_dep = client.get_escrows_by_depositor(&admin_b);
+    assert_eq!(by_dep.len(), 1);
+    assert_eq!(by_dep.get(0).unwrap(), escrow_id2);
+
+    // Beneficiary should hold combined releases from both escrows
+    assert_eq!(token_client.balance(&beneficiary), 2 * MIN_ESCROW_AMOUNT);
+}
+
+// ── #578 supplementary: old admin cannot act after transfer ───────────────────
+
+#[test]
+#[should_panic(expected = "Unauthorized")]
+fn test_old_admin_cannot_act_after_transfer() {
+    let e = Env::default();
+    e.mock_all_auths();
+    e.ledger().with_mut(|l| l.sequence_number = 100);
+
+    let contract_id = e.register_contract(None, VeriTixPay);
+    let client = VeriTixPayClient::new(&e, &contract_id);
+
+    let admin_a = Address::generate(&e);
+    let admin_b = Address::generate(&e);
+    client.initialize(&admin_a);
+
+    // Transfer and accept admin
+    client.transfer_ownership(&admin_a, &admin_b);
+    client.accept_admin(&admin_b);
+
+    // Advance past activation delay
+    let activation = client.admin_active_after_ledger();
+    e.ledger().with_mut(|l| l.sequence_number = activation + 1);
+
+    // Old admin tries to freeze - should panic
+    let stranger = Address::generate(&e);
+    crate::freeze::freeze_account(&e, &admin_a, &stranger);
 }

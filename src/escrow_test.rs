@@ -219,6 +219,30 @@ fn test_large_memo_validation() {
     assert!(memo.len() > 64, "memo exceeds 64-byte limit");
 }
 
+#[test]
+fn test_create_escrow_panics_on_memo_too_long() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
+    let memo = make_memo(&t.e, &[b'x'; 65]);
+
+    // Verify that create_escrow panics when memo > MAX_MEMO_BYTES
+    use soroban_sdk::token;
+    let token_client = token::Client::new(&t.e, &t.token);
+    let contract_balance_before = token_client.balance(&t.e.current_contract_address());
+    let depositor_balance_before = token_client.balance(&t.depositor);
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        t.client.create_escrow(
+            &t.depositor, &t.beneficiary, &t.token, &100, &expiry, &memo,
+        );
+    }));
+    assert!(result.is_err(), "create_escrow should panic on memo > MAX_MEMO_BYTES");
+
+    // Verify no tokens were transferred (state rollback)
+    assert_eq!(token_client.balance(&t.e.current_contract_address()), contract_balance_before);
+    assert_eq!(token_client.balance(&t.depositor), depositor_balance_before);
+}
+
 // ── #174: Partial release ─────────────────────────────────────────────────────
 
 #[test]
@@ -504,6 +528,41 @@ fn test_get_escrows_batch() {
     assert!(batch.get(2).unwrap().is_none());
 }
 
+// ── #569: Minimum escrow amount ─────────────────────────────────────────────
+
+#[test]
+fn test_create_escrow_at_min_amount_succeeds() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
+
+    let id = t.client.create_escrow(
+        &t.depositor,
+        &t.beneficiary,
+        &t.token,
+        &crate::storage_types::MIN_ESCROW_AMOUNT,
+        &expiry,
+        &empty_memo(&t.e),
+    );
+    assert_eq!(id, 0);
+    assert_eq!(t.client.escrowed_total(), crate::storage_types::MIN_ESCROW_AMOUNT);
+}
+
+#[test]
+#[should_panic(expected = "AmountTooSmall")]
+fn test_create_escrow_below_min_amount_panics() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
+
+    t.client.create_escrow(
+        &t.depositor,
+        &t.beneficiary,
+        &t.token,
+        &(crate::storage_types::MIN_ESCROW_AMOUNT - 1),
+        &expiry,
+        &empty_memo(&t.e),
+    );
+}
+
 #[test]
 fn test_is_escrow_settled() {
     let t = setup();
@@ -546,6 +605,41 @@ fn test_get_escrow_age() {
 
     t.client.release_escrow(&t.depositor, &id);
     assert_eq!(t.client.get_escrow_age(&id), 0);
+}
+
+// ── #570: Per-depositor escrow count limit ───────────────────────────────────
+
+#[test]
+fn test_max_escrows_per_depositor_succeeds_at_limit() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
+
+    for _ in 0..100 {
+        t.client.create_escrow(
+            &t.depositor, &t.beneficiary, &t.token, &1, &expiry, &empty_memo(&t.e),
+        );
+    }
+
+    let list = t.client.get_escrows_by_depositor(&t.depositor);
+    assert_eq!(list.len(), 100);
+}
+
+#[test]
+#[should_panic(expected = "TooManyEscrows: depositor has reached the active escrow limit")]
+fn test_max_escrows_per_depositor_panics_at_101() {
+    let t = setup();
+    let expiry = t.e.ledger().sequence() + 1000;
+
+    for _ in 0..100 {
+        t.client.create_escrow(
+            &t.depositor, &t.beneficiary, &t.token, &1, &expiry, &empty_memo(&t.e),
+        );
+    }
+
+    // The 101st escrow must panic
+    t.client.create_escrow(
+        &t.depositor, &t.beneficiary, &t.token, &1, &expiry, &empty_memo(&t.e),
+    );
 }
 
 // ── #452: escrowed_value_for_depositor ────────────────────────────────────────

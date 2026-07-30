@@ -1,5 +1,5 @@
 use soroban_sdk::{contracttype, token, Address, Bytes, Env, Vec};
-use crate::storage_types::DataKey;
+use crate::storage_types::{DataKey, MAX_ESCROWS_PER_DEPOSITOR};
 
 #[contracttype]
 #[derive(Clone)]
@@ -66,7 +66,72 @@ fn get_admin(e: &Env) -> Address {
 
 // ── Public functions ─────────────────────────────────────────────────────────
 
-/// Create an escrow. 
+/// Internal escrow creation without auth or rate-limit checks — used by split_to_escrow
+/// which batches multiple escrows under a single sender auth.
+pub(crate) fn create_escrow_batch(
+    e: &Env,
+    depositor: &Address,
+    beneficiary: &Address,
+    token_addr: &Address,
+    amount: i128,
+    expiry_ledger: u32,
+    memo: &Bytes,
+) -> u32 {
+    assert!(amount > 0, "amount must be greater than zero");
+    assert!(
+        expiry_ledger > e.ledger().sequence(),
+        "expiry_ledger must be in the future"
+    );
+
+    // #175: enforce memo length limit
+    if memo.len() > 64 {
+        panic!("MemoTooLong: memo cannot exceed 64 bytes");
+    }
+
+    let id: u32 = e
+        .storage()
+        .persistent()
+        .get(&DataKey::EscrowCount)
+        .unwrap_or(0);
+
+    let record = EscrowRecord {
+        id,
+        depositor: depositor.clone(),
+        beneficiary: beneficiary.clone(),
+        token: token_addr.clone(),
+        amount,
+        released_amount: 0,
+        expiry_ledger,
+        released: false,
+        refunded: false,
+        memo: memo.clone(),
+        liened: false,
+        liened_by: depositor.clone(),
+        lien_amount: 0,
+        created_at_ledger: e.ledger().sequence(),
+    };
+
+    save_record(e, &record);
+    append_escrow_id(e, DataKey::DepositorEscrows(depositor.clone()), id);
+    append_escrow_id(e, DataKey::BeneficiaryEscrows(beneficiary.clone()), id);
+
+    e.storage().persistent().set(&DataKey::EscrowCount, &(id + 1));
+    let current_locked: i128 = e.storage().persistent().get(&DataKey::EscrowValueLocked).unwrap_or(0);
+    e.storage().persistent().set(&DataKey::EscrowValueLocked, &(current_locked + amount));
+
+    e.events().publish(
+        (
+            soroban_sdk::symbol_short!("escrow_cr"),
+            record.depositor.clone(),
+            record.beneficiary.clone(),
+        ),
+        (record.amount, record.memo.clone()),
+    );
+
+    id
+}
+
+/// Public escrow creation with auth and rate-limit checks.
 /// #175 enforces `memo: Bytes` — max 64 bytes.
 /// #269 enforces dynamic rate limiting based on block timestamp history.
 pub fn create_escrow(
@@ -90,16 +155,29 @@ pub fn create_escrow(
     }
 
     // #175: enforce memo length limit with the exact panic string required
-    if memo.len() > 64 {
-        panic!("MemoTooLong: memo cannot exceed 64 bytes");
+    if memo.len() > MAX_MEMO_BYTES {
+        panic!("MemoTooLong: memo cannot exceed {} bytes", MAX_MEMO_BYTES);
     }
 
     assert!(amount > 0, "amount must be greater than zero");
+    if amount < crate::storage_types::MIN_ESCROW_AMOUNT {
+        panic!("AmountTooSmall: escrow amount must be at least {} tokens", crate::storage_types::MIN_ESCROW_AMOUNT);
+    }
     // #433: expiry must be strictly in the future
     assert!(
         expiry_ledger > e.ledger().sequence(),
         "expiry_ledger must be in the future"
     );
+
+    // Closes #570: per-depositor escrow count limit
+    let depositor_escrows: Vec<u32> = e
+        .storage()
+        .persistent()
+        .get(&DataKey::DepositorEscrows(depositor.clone()))
+        .unwrap_or(Vec::new(&e));
+    if depositor_escrows.len() >= MAX_ESCROWS_PER_DEPOSITOR {
+        panic!("TooManyEscrows: depositor has reached the active escrow limit");
+    }
 
     let id: u32 = e
         .storage()
@@ -331,6 +409,7 @@ pub fn place_lien(e: Env, creditor: Address, escrow_id: u32, lien_amount: i128) 
     assert!(!record.released && !record.refunded, "escrow already settled");
     assert!(!record.liened, "only one lien at a time");
     assert!(lien_amount > 0, "lien amount must be positive");
+    assert!(lien_amount <= record.amount, "lien amount exceeds escrow amount");
     
     record.liened = true;
     record.liened_by = creditor;
