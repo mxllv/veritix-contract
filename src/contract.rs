@@ -1,5 +1,5 @@
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Bytes, Env, String, Vec};
-use crate::{escrow, multi_escrow, allowance, admin, dispute, recurring, balance, freeze, whitelist};
+use crate::{freeze, escrow, multi_escrow, allowance, admin, dispute, recurring, balance, whitelist};
 use crate::storage_types::{DataKey, RecurringPayment, ResolverStats};
 use crate::validation::require_positive_amount;
 

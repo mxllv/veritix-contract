@@ -232,4 +232,96 @@ mod tests {
         // Try to replace recipient after cancellation
         t.client.replace_split_recipient(&t.sender, &split_id, &t.recipient1, &t.new_recipient);
     }
+
+    // ── #576: Splitter stress test ───────────────────────────────────────────────
+
+    #[test]
+    fn test_splitter_20_recipients_exact_distribution() {
+        let e = Env::default();
+        e.mock_all_auths();
+
+        let contract_id = e.register_contract(None, VeriTixPay);
+        let client = VeriTixPayClient::new(&e, &contract_id);
+
+        let sender = Address::generate(&e);
+        let token = e.register_stellar_asset_contract(sender.clone());
+        let token_client = soroban_sdk::token::Client::new(&e, &token);
+        let token_admin = soroban_sdk::token::StellarAssetClient::new(&e, &token);
+
+        // Mint enough for both runs
+        token_admin.mint(&sender, &10_000);
+        client.initialize(&sender);
+
+        let event_ledger = e.ledger().sequence() + 1000;
+
+        // ── Run 1: total_amount = 999 (doesn't divide evenly by 20) ──
+        let total_amount_1: i128 = 999;
+        let mut recipients_vec = soroban_sdk::Vec::new(&e);
+        for i in 0..20 {
+            // Each recipient gets 500 bps; 20 × 500 = 10000
+            let recipient = Address::generate(&e);
+            recipients_vec.push_back((recipient.clone(), 500u32));
+        }
+
+        token_admin.mint(&sender, &(total_amount_1 + 1));
+        let split_id = crate::splitter::create_split(
+            e.clone(),
+            sender.clone(),
+            recipients_vec.clone(),
+            token.clone(),
+            total_amount_1,
+            event_ledger,
+        );
+
+        assert_eq!(token_client.balance(&e.current_contract_address()), total_amount_1);
+
+        crate::splitter::distribute_split(e.clone(), sender.clone(), split_id);
+
+        // Sum all recipient balances
+        let mut total_received: i128 = 0;
+        for i in 0..20 {
+            let (recipient, _) = recipients_vec.get(i).unwrap();
+            total_received += token_client.balance(recipient);
+        }
+        // Every stroop must be accounted for
+        assert_eq!(total_received, total_amount_1);
+        // Contract balance returns to zero
+        assert_eq!(token_client.balance(&e.current_contract_address()), 0);
+
+        // ── Run 2: total_amount = 1 (one recipient gets 1, rest get 0) ──
+        let total_amount_2: i128 = 1;
+        token_admin.mint(&sender, &total_amount_2);
+
+        let mut recipients_vec2 = soroban_sdk::Vec::new(&e);
+        for i in 0..20 {
+            let recipient = Address::generate(&e);
+            recipients_vec2.push_back((recipient.clone(), 500u32));
+        }
+
+        let split_id2 = crate::splitter::create_split(
+            e.clone(),
+            sender.clone(),
+            recipients_vec2.clone(),
+            token.clone(),
+            total_amount_2,
+            event_ledger,
+        );
+
+        crate::splitter::distribute_split(e.clone(), sender.clone(), split_id2);
+
+        // Sum all recipient balances
+        let mut total_received2: i128 = 0;
+        let mut non_zero_count = 0;
+        for i in 0..20 {
+            let (recipient, _) = recipients_vec2.get(i).unwrap();
+            let bal = token_client.balance(recipient);
+            total_received2 += bal;
+            if bal > 0 {
+                non_zero_count += 1;
+                assert_eq!(bal, 1);
+            }
+        }
+        assert_eq!(total_received2, 1);
+        assert_eq!(non_zero_count, 1);
+    }
 }

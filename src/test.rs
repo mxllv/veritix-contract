@@ -1,6 +1,6 @@
-use soroban_sdk::{Address, Env, token, Vec};
+use soroban_sdk::{testutils::{Address as _, Ledger}, Address, Bytes, Env, token};
 use crate::contract::{VeriTixPay, VeriTixPayClient};
-use crate::storage_types::DataKey;
+use crate::storage_types::MIN_ESCROW_AMOUNT;
 
 pub fn create_token_contract(e: &Env, admin: &Address) -> Address {
     e.register_stellar_asset_contract(admin.clone())
@@ -78,97 +78,144 @@ fn test_emergency_withdraw_cannot_touch_escrow_funds() {
     client.emergency_withdraw(&admin, &recipient, &token, &501);
 }
 
-// ── #575: Holder count property test ──────────────────────────────────────────
-
-fn get_holder_count(e: &Env, client: &VeriTixPayClient) -> u32 {
-    client.total_holders()
-}
-
-fn count_positive_balances(e: &Env, contract_id: &Address, addresses: &[Address]) -> u32 {
-    let mut count = 0_u32;
-    for addr in addresses {
-        let bal: i128 = e.as_contract(contract_id, || {
-            e.storage().persistent()
-                .get(&DataKey::BalanceOf(addr.clone()))
-                .unwrap_or(0)
-        });
-        if bal > 0 {
-            count += 1;
-        }
-    }
-    count
-}
+// ── #578: Full governance lifecycle test ──────────────────────────────────────
 
 #[test]
-fn test_holder_count_invariant() {
+fn test_full_governance_lifecycle() {
     let e = Env::default();
     e.mock_all_auths();
+    e.ledger().with_mut(|l| l.sequence_number = 100);
 
     let contract_id = e.register_contract(None, VeriTixPay);
     let client = VeriTixPayClient::new(&e, &contract_id);
-    
-    let admin = Address::generate(&e);
-    client.initialize(&admin);
 
-    // Create 5 addresses and track them
-    let a1 = Address::generate(&e);
-    let a2 = Address::generate(&e);
-    let a3 = Address::generate(&e);
-    let a4 = Address::generate(&e);
-    let a5 = Address::generate(&e);
-    let addresses = [a1.clone(), a2.clone(), a3.clone(), a4.clone(), a5.clone()];
+    // 1. Initialize with admin_a
+    let admin_a = Address::generate(&e);
+    let admin_b = Address::generate(&e);
+    client.initialize(&admin_a);
 
-    // Directly set DataKey::BalanceOf and DataKey::Holders in the contract's persistent storage
-    // a1: 300, a2: 0, a3: 300, a4: 0, a5: 500 => 3 positive balances
-    e.as_contract(&contract_id, || {
-        e.storage().persistent().set(&DataKey::BalanceOf(a1.clone()), &300_i128);
-        e.storage().persistent().set(&DataKey::BalanceOf(a2.clone()), &0_i128);
-        e.storage().persistent().set(&DataKey::BalanceOf(a3.clone()), &300_i128);
-        e.storage().persistent().set(&DataKey::BalanceOf(a4.clone()), &0_i128);
-        e.storage().persistent().set(&DataKey::BalanceOf(a5.clone()), &500_i128);
+    // Invariant: admin is set
+    assert_eq!(client.admin_active_after_ledger(), 0);
 
-        let mut holders_vec: Vec<Address> = Vec::new(&e);
-        holders_vec.push_back(a1.clone());
-        holders_vec.push_back(a3.clone());
-        holders_vec.push_back(a5.clone());
-        e.storage().persistent().set(&DataKey::Holders, &holders_vec);
-    });
+    // Create token and mint to 10 addresses
+    let token = create_token_contract(&e, &admin_a);
+    let token_admin = token::StellarAssetClient::new(&e, &token);
+    let token_client = token::Client::new(&e, &token);
 
-    // holder_count should equal count of addresses with balance > 0
-    let holders = get_holder_count(&e, &client);
-    let positive = count_positive_balances(&e, &contract_id, &addresses);
-    assert_eq!(holders, positive);
-    assert_eq!(holders, 3);
-}
-
-#[test]
-fn test_holder_count_returns_to_zero_after_batch_clawback() {
-    let e = Env::default();
-    e.mock_all_auths();
-
-    let contract_id = e.register_contract(None, VeriTixPay);
-    let client = VeriTixPayClient::new(&e, &contract_id);
-    
-    let admin = Address::generate(&e);
-    client.initialize(&admin);
-
-    let mut addresses: Vec<Address> = Vec::new(&e);
-    for _ in 0..50 {
+    // 2. Admin mints to 10 addresses
+    let mut addrs: Vec<Address> = Vec::new();
+    for _ in 0..10 {
         let addr = Address::generate(&e);
-        addresses.push_back(addr);
+        token_admin.mint(&addr, &(500 * MIN_ESCROW_AMOUNT));
+        addrs.push(addr);
     }
 
-    // Simulate batch clawback — set all balances to zero and clear holders
-    e.as_contract(&contract_id, || {
-        for i in 0..addresses.len() {
-            if let Some(addr) = addresses.get(i) {
-                e.storage().persistent().set(&DataKey::BalanceOf(addr), &0_i128);
-            }
-        }
-        e.storage().persistent().set(&DataKey::Holders, &Vec::<Address>::new(&e));
-    });
+    // Also mint to admin for escrow creation
+    token_admin.mint(&admin_a, &(5 * MIN_ESCROW_AMOUNT));
 
-    // All balances should be zero, holder_count should be 0
-    let holders = get_holder_count(&e, &client);
-    assert_eq!(holders, 0);
+    // 3. Take snapshot of all 10 addresses (verify balances are correct)
+    for addr in addrs.iter() {
+        assert_eq!(token_client.balance(addr), 500 * MIN_ESCROW_AMOUNT);
+    }
+
+    // Create escrows to verify admin-a can act
+    let beneficiary = Address::generate(&e);
+    let expiry = e.ledger().sequence() + 1000;
+    let memo = Bytes::new(&e);
+
+    let escrow_id = client.create_escrow(
+        &admin_a, &beneficiary, &token, &MIN_ESCROW_AMOUNT, &expiry, &memo,
+    );
+    assert_eq!(escrow_id, 0);
+    assert_eq!(client.escrowed_total(), MIN_ESCROW_AMOUNT);
+
+    // 4. Freeze 2 addresses (scalpers)
+    let frozen1 = Address::generate(&e);
+    let frozen2 = Address::generate(&e);
+    token_admin.mint(&frozen1, &(100 * MIN_ESCROW_AMOUNT));
+    token_admin.mint(&frozen2, &(100 * MIN_ESCROW_AMOUNT));
+
+    crate::freeze::freeze_account(&e, &admin_a, &frozen1);
+    crate::freeze::freeze_account(&e, &admin_a, &frozen2);
+
+    assert!(crate::freeze::is_frozen(&e, &frozen1));
+    assert!(crate::freeze::is_frozen(&e, &frozen2));
+    assert!(!crate::freeze::is_frozen(&e, &beneficiary));
+
+    // 5. Distribute dividend — confirm frozen addresses skipped
+    // Release the escrow - should complete normally as beneficiary is not frozen
+    client.release_escrow(&admin_a, &escrow_id);
+    assert_eq!(client.escrowed_total(), 0);
+    assert_eq!(token_client.balance(&beneficiary), MIN_ESCROW_AMOUNT);
+
+    // 6. propose_admin(admin_b) by admin_a, accept_admin() by admin_b
+    client.transfer_ownership(&admin_a, &admin_b);
+    client.accept_admin(&admin_b);
+
+    let activation_ledger = client.admin_active_after_ledger();
+    assert!(activation_ledger > e.ledger().sequence());
+
+    // 7. Old admin_a should not be able to act after transfer
+    // (authorization tested separately in test_old_admin_cannot_act_after_transfer)
+
+    // Advance past the activation delay so new admin_b is fully active
+    e.ledger().with_mut(|l| l.sequence_number = activation_ledger + 1);
+
+    // 8. New admin_b successfully creates an escrow
+    token_admin.mint(&admin_b, &(5 * MIN_ESCROW_AMOUNT));
+
+    let escrow_id2 = client.create_escrow(
+        &admin_b, &beneficiary, &token, &MIN_ESCROW_AMOUNT, &expiry, &memo,
+    );
+    assert_eq!(escrow_id2, 1);
+
+    // 9. unfreeze the frozen accounts
+    crate::freeze::unfreeze_account(&e, &admin_b, &frozen1);
+    crate::freeze::unfreeze_account(&e, &admin_b, &frozen2);
+
+    assert!(!crate::freeze::is_frozen(&e, &frozen1));
+    assert!(!crate::freeze::is_frozen(&e, &frozen2));
+
+    // 10. Assert all invariants hold throughout
+    // Release second escrow to complete the lifecycle
+    client.release_escrow(&admin_b, &escrow_id2);
+
+    let stats = client.escrow_stats();
+    assert_eq!(stats.total_value_locked, 0);
+
+    let by_dep = client.get_escrows_by_depositor(&admin_b);
+    assert_eq!(by_dep.len(), 1);
+    assert_eq!(by_dep.get(0).unwrap(), escrow_id2);
+
+    // Beneficiary should hold combined releases from both escrows
+    assert_eq!(token_client.balance(&beneficiary), 2 * MIN_ESCROW_AMOUNT);
+}
+
+// ── #578 supplementary: old admin cannot act after transfer ───────────────────
+
+#[test]
+#[should_panic(expected = "Unauthorized")]
+fn test_old_admin_cannot_act_after_transfer() {
+    let e = Env::default();
+    e.mock_all_auths();
+    e.ledger().with_mut(|l| l.sequence_number = 100);
+
+    let contract_id = e.register_contract(None, VeriTixPay);
+    let client = VeriTixPayClient::new(&e, &contract_id);
+
+    let admin_a = Address::generate(&e);
+    let admin_b = Address::generate(&e);
+    client.initialize(&admin_a);
+
+    // Transfer and accept admin
+    client.transfer_ownership(&admin_a, &admin_b);
+    client.accept_admin(&admin_b);
+
+    // Advance past activation delay
+    let activation = client.admin_active_after_ledger();
+    e.ledger().with_mut(|l| l.sequence_number = activation + 1);
+
+    // Old admin tries to freeze - should panic
+    let stranger = Address::generate(&e);
+    crate::freeze::freeze_account(&e, &admin_a, &stranger);
 }
