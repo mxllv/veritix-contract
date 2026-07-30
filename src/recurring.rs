@@ -106,13 +106,6 @@ pub fn get_recurring_history(e: Env, recurring_id: u32) -> Vec<RecurringPayment>
         .unwrap_or(Vec::new(&e))
 }
 
-   let token_client = soroban_sdk::token::Client::new(&e, &record.token);
-    token_client.transfer(
-        &e.current_contract_address(),
-        &record.depositor,
-        &record.total_amount,
-    );
-
 pub fn amend_recurring(e: &Env, caller: &Address, recurring_id: u32, new_amount: i128, new_interval: u32) {
     caller.require_auth();
     assert!(new_amount > 0, "amount must be positive");

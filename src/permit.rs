@@ -12,13 +12,25 @@ fn write_nonce(e: &Env, owner: &Address, nonce: u64) {
     e.storage().persistent().set(&key, &nonce);
 }
 
+pub fn nonces(e: &Env, owner: Address) -> u64 {
+    read_nonce(e, &owner)
+}
+
+pub fn check_and_increment_nonce(e: &Env, user: &Address, expected_nonce: u32) {
+    let current: u64 = read_nonce(e, user);
+    if expected_nonce as u64 != current {
+        panic!("InvalidNonce: expected {} but got {}", current, expected_nonce);
+    }
+    write_nonce(e, user, current + 1);
+}
+
 /// #574: Batch permit — sets allowances for multiple spenders via a single signed message.
 /// The signed message includes the full `approvals` vector, the owner address, and the nonce.
 /// The nonce is incremented exactly once for the entire batch.
 pub fn permit_batch(
     e: &Env,
     owner: Address,
-    approvals: Vec<(Address, i128, u32)>, // (spender, amount, expiration_ledger)
+    approvals: Vec<(Address, i128, u32)>,
     nonce: u64,
     public_key: BytesN<32>,
     signature: BytesN<64>,
@@ -50,10 +62,6 @@ pub fn permit_batch(
         (symbol_short!("permit_bt"), owner.clone()),
         approvals.len() as u32,
     );
-}
-
-pub fn nonces(e: &Env, owner: Address) -> u64 {
-    read_nonce(e, &owner)
 }
 
 fn hash_permit_batch(

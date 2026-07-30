@@ -1,6 +1,6 @@
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Bytes, Env, String, Vec};
-use crate::{freeze, escrow, multi_escrow, allowance, admin, dispute, recurring, balance, whitelist};
-use crate::storage_types::{DataKey, RecurringPayment, ResolverStats};
+use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Bytes, BytesN, Env, String, Vec};
+use crate::{escrow, multi_escrow, allowance, admin, dispute, recurring, balance, whitelist, permit};
+use crate::storage_types::{DataKey, RecurringPayment, ResolverStats, VestingRecord};
 use crate::validation::require_positive_amount;
 
 // #573: Airdrop holder set tracking helper
@@ -35,6 +35,16 @@ fn track_holder_for_airdrop(e: &Env, addr: &Address) {
 pub trait VeriTixPayTrait {
     fn initialize(e: Env, admin: Address);
     fn initialize_with_max_supply(e: Env, admin: Address, max_supply: i128);
+
+    // ── SEP-41 Token Interface ────────────────────────────────────────────────
+    fn name(e: Env) -> soroban_sdk::String;
+    fn symbol(e: Env) -> soroban_sdk::String;
+    fn decimals(e: Env) -> u32;
+    fn balance(e: Env, account: Address) -> i128;
+    fn total_supply(e: Env) -> i128;
+    fn mint(e: Env, admin: Address, to: Address, amount: i128);
+    fn burn(e: Env, from: Address, amount: i128);
+    fn clawback(e: Env, admin: Address, from: Address, amount: i128);
 
     // ── Escrow ────────────────────────────────────────────────────────────────
     fn create_escrow(
@@ -130,6 +140,10 @@ pub trait VeriTixPayTrait {
     fn set_paused(e: Env, admin: Address, paused: bool);
     fn is_paused(e: Env) -> bool;
 
+    // ── Permit / Nonce ────────────────────────────────────────────────────────
+    fn permit(e: Env, user: Address, nonce: u32);
+    fn nonces(e: Env, user: Address) -> u64;
+
     // ── #453: Resolver stats ─────────────────────────────────────────────────
     fn resolver_stats(e: Env, resolver: Address) -> ResolverStats;
 
@@ -163,6 +177,12 @@ pub trait VeriTixPayTrait {
     fn trigger_auto_release(e: Env, escrow_id: u32);
     fn escrow_between(e: Env, addr1: Address, addr2: Address) -> u32;
     fn cancel_recurring_batch(e: Env, caller: Address, recurring_ids: Vec<u32>);
+    fn topup_escrow(e: Env, depositor: Address, escrow_id: u32, amount: i128);
+    fn claim_vesting(e: Env, holder: Address, vesting_id: u32);
+    fn get_vesting_by_holder(e: Env, holder: Address) -> Vec<u32>;
+    fn split_to_escrow(e: Env, sender: Address, recipients: Vec<(Address, u32)>, token: Address, total_amount: i128, expiry_ledger: u32) -> Vec<u32>;
+    fn airdrop(e: Env, admin: Address, token: Address, total_amount: i128);
+    fn permit_batch(e: Env, owner: Address, approvals: Vec<(Address, i128, u32)>, nonce: u64, public_key: BytesN<32>, signature: BytesN<64>);
 }
 
 #[contracttype]
@@ -198,6 +218,63 @@ impl VeriTixPayTrait for VeriTixPay {
 
         env.storage().persistent().set(&DataKey::Admin, &admin);
         env.storage().persistent().set(&DataKey::MaxSupply, &max_supply);
+    }
+
+    // ── SEP-41 Token Interface ────────────────────────────────────────────────
+
+    fn name(e: Env) -> soroban_sdk::String {
+        soroban_sdk::String::from_str(&e, "VeriTix")
+    }
+
+    fn symbol(e: Env) -> soroban_sdk::String {
+        soroban_sdk::String::from_str(&e, "VTX")
+    }
+
+    fn decimals(_e: Env) -> u32 {
+        7
+    }
+
+    fn balance(e: Env, account: Address) -> i128 {
+        crate::balance::balance_of(&e, &account)
+    }
+
+    fn total_supply(e: Env) -> i128 {
+        crate::balance::read_supply(&e)
+    }
+
+    fn mint(e: Env, admin: Address, to: Address, amount: i128) {
+        admin::check_admin(&e, &admin);
+        require_positive_amount(amount);
+        crate::balance::increase_supply(&e, amount);
+        crate::balance::add_balance(&e, &to, amount);
+    }
+
+    fn burn(e: Env, from: Address, amount: i128) {
+        from.require_auth();
+        require_positive_amount(amount);
+        let bal = crate::balance::balance_of(&e, &from);
+        assert!(bal >= amount, "insufficient balance");
+        crate::balance::decrease_supply(&e, amount);
+        let new_balance = bal - amount;
+        if new_balance == 0 {
+            e.storage().persistent().remove(&DataKey::BalanceOf(from.clone()));
+        } else {
+            e.storage().persistent().set(&DataKey::BalanceOf(from.clone()), &new_balance);
+        }
+    }
+
+    fn clawback(e: Env, admin: Address, from: Address, amount: i128) {
+        admin::check_admin(&e, &admin);
+        require_positive_amount(amount);
+        let bal = crate::balance::balance_of(&e, &from);
+        assert!(bal >= amount, "insufficient balance");
+        crate::balance::decrease_supply(&e, amount);
+        let new_balance = bal - amount;
+        if new_balance == 0 {
+            e.storage().persistent().remove(&DataKey::BalanceOf(from.clone()));
+        } else {
+            e.storage().persistent().set(&DataKey::BalanceOf(from.clone()), &new_balance);
+        }
     }
 
     fn create_escrow(
@@ -443,6 +520,17 @@ impl VeriTixPayTrait for VeriTixPay {
         e.storage().persistent().get::<_, bool>(&DataKey::Paused).unwrap_or(false)
     }
 
+    // ── Permit / Nonce ────────────────────────────────────────────────────────
+
+    fn permit(e: Env, user: Address, nonce: u32) {
+        user.require_auth();
+        crate::permit::check_and_increment_nonce(&e, &user, nonce);
+    }
+
+    fn nonces(e: Env, user: Address) -> u64 {
+        permit::nonces(&e, user)
+    }
+
     // ── #453: Resolver stats ─────────────────────────────────────────────────
 
     fn resolver_stats(e: Env, resolver: Address) -> ResolverStats {
@@ -516,14 +604,6 @@ impl VeriTixPayTrait for VeriTixPay {
         escrow::topup_escrow(e, depositor, escrow_id, amount)
     }
 
-        e.events().publish(
-            (soroban_sdk::symbol_short!("vst_crt"), admin, holder),
-            (id, amount, vesting_ledger),
-        );
-
-        id
-    }
-
     fn claim_vesting(e: Env, holder: Address, vesting_id: u32) {
         holder.require_auth();
 
@@ -539,6 +619,13 @@ impl VeriTixPayTrait for VeriTixPay {
             e.ledger().sequence() >= record.vesting_ledger,
             "vesting period not yet reached"
         );
+
+        let token_client = soroban_sdk::token::Client::new(&e, &record.token);
+        token_client.transfer(&e.current_contract_address(), &holder, &record.amount);
+
+        record.claimed = true;
+        e.storage().persistent().set(&DataKey::Vesting(vesting_id), &record);
+    }
 
     fn raise_dispute(e: Env, caller: Address, escrow_id: u32) {
         let max_disputes: u32 = e.storage().persistent().get(&DataKey::MaxDisputes).unwrap_or(3);
@@ -571,19 +658,6 @@ impl VeriTixPayTrait for VeriTixPay {
             .unwrap_or_else(|| Vec::new(&e))
     }
 
-    // ── #572: Split-to-escrow ────────────────────────────────────────────────
-
-    fn split_to_escrow(
-        e: Env,
-        sender: Address,
-        recipients: Vec<(Address, u32)>,
-        token: Address,
-        total_amount: i128,
-        expiry_ledger: u32,
-    ) -> Vec<u32> {
-        sender.require_auth();
-        require_positive_amount(total_amount);
-
     fn burn_from(e: Env, spender: Address, from: Address, amount: i128) {
         balance::burn_from(&e, &spender, &from, amount)
     }
@@ -598,13 +672,25 @@ impl VeriTixPayTrait for VeriTixPay {
         e.events().publish((soroban_sdk::symbol_short!("transfer"), from, to), (amount, memo));
     }
 
+    // ── #572: Split-to-escrow ────────────────────────────────────────────────
+
+    fn split_to_escrow(
+        e: Env,
+        sender: Address,
+        recipients: Vec<(Address, u32)>,
+        token: Address,
+        total_amount: i128,
+        expiry_ledger: u32,
+    ) -> Vec<u32> {
+        sender.require_auth();
+        require_positive_amount(total_amount);
+
         // Validate BPS sum equals 10000 and check for duplicates
         let mut total_bps: u32 = 0;
         for i in 0..recipients.len() {
             let (addr, bps) = recipients.get(i).unwrap();
             assert!(bps > 0, "recipient share_bps cannot be zero");
             total_bps += bps;
-            // Check for duplicate addresses
             for j in (i + 1)..recipients.len() {
                 let (other_addr, _) = recipients.get(j).unwrap();
                 assert!(addr != other_addr, "duplicate recipient address");
@@ -612,7 +698,6 @@ impl VeriTixPayTrait for VeriTixPay {
         }
         assert!(total_bps == 10000, "total basis points must equal 10000");
 
-        // Pull all tokens from sender into the contract once
         let token_client = token::Client::new(&e, &token);
         token_client.transfer(&sender, &e.current_contract_address(), &total_amount);
 
@@ -624,13 +709,12 @@ impl VeriTixPayTrait for VeriTixPay {
         for i in 0..len {
             let (address, bps) = recipients.get(i).unwrap();
             let share = if i == len - 1 {
-                remaining // last recipient gets all remaining dust
+                remaining
             } else {
                 total_amount * bps as i128 / 10000
             };
             remaining = remaining.checked_sub(share).expect("split remaining underflow");
 
-            // Use internal batch helper to skip auth + rate-limit
             let escrow_id = escrow::create_escrow_batch(
                 &e,
                 &sender,
@@ -668,7 +752,6 @@ impl VeriTixPayTrait for VeriTixPay {
         let admin_balance = token_client.balance(&admin);
         assert!(admin_balance >= total_amount, "insufficient admin balance");
 
-        // Transfer total airdrop amount from admin to contract
         token_client.transfer(&admin, &e.current_contract_address(), &total_amount);
 
         let holders: Vec<Address> = e
@@ -677,7 +760,6 @@ impl VeriTixPayTrait for VeriTixPay {
             .get(&DataKey::HolderSet)
             .unwrap_or_else(|| Vec::new(&e));
 
-        // Calculate total held by eligible (non-frozen, positive balance) holders
         let mut total_held: i128 = 0;
         for i in 0..holders.len() {
             let holder = holders.get(i).unwrap();
@@ -721,7 +803,6 @@ impl VeriTixPayTrait for VeriTixPay {
             }
         }
 
-        // Return any remainder to admin
         let remainder = total_amount.checked_sub(distributed)
             .expect("airdrop remainder underflow");
         if remainder > 0 {
@@ -751,7 +832,92 @@ impl VeriTixPayTrait for VeriTixPay {
         permit::permit_batch(&e, owner, approvals, nonce, public_key, signature)
     }
 
-    fn cancel_recurring_batch(e: Env, caller: Address, recurring_ids: Vec<u32>) {
-        recurring::cancel_recurring_batch(&e, &caller, recurring_ids)
+    fn recurring_count_for_payee(e: Env, payee: Address) -> u32 {
+        recurring::recurring_count_for_payee(e, payee)
+    }
+
+    fn recurring_ids_for_payee(e: Env, payee: Address) -> Vec<u32> {
+        recurring::recurring_ids_for_payee(e, payee)
+    }
+
+    fn transfer_escrow_beneficiary(e: Env, depositor: Address, escrow_id: u32, new_beneficiary: Address) {
+        depositor.require_auth();
+        let mut record = escrow::load_record(&e, escrow_id);
+        assert!(record.depositor == depositor, "not the depositor");
+        let old_beneficiary = record.beneficiary.clone();
+        record.beneficiary = new_beneficiary.clone();
+        escrow::save_record(&e, &record);
+        let ben_key = DataKey::BeneficiaryEscrows(old_beneficiary);
+        let escrow_ids: Vec<u32> = e.storage().persistent().get(&ben_key).unwrap_or_else(|| Vec::new(&e));
+        let mut filtered: Vec<u32> = Vec::new(&e);
+        for i in 0..escrow_ids.len() {
+            if escrow_ids.get(i).unwrap() != escrow_id {
+                filtered.push_back(escrow_ids.get(i).unwrap());
+            }
+        }
+        e.storage().persistent().set(&ben_key, &filtered);
+        let new_ben_key = DataKey::BeneficiaryEscrows(new_beneficiary);
+        let mut new_ids: Vec<u32> = e.storage().persistent().get(&new_ben_key).unwrap_or_else(|| Vec::new(&e));
+        new_ids.push_back(escrow_id);
+        e.storage().persistent().set(&new_ben_key, &new_ids);
+    }
+
+    fn total_holders(e: Env) -> u32 {
+        e.storage().persistent().get(&DataKey::HolderCount).unwrap_or(0)
+    }
+
+    fn get_holders(e: Env) -> Vec<Address> {
+        e.storage().persistent().get(&DataKey::HolderSet).unwrap_or_else(|| Vec::new(&e))
+    }
+
+    fn set_mediation_fee(e: Env, admin: Address, fee_bps: u32) {
+        admin::check_admin(&e, &admin);
+        e.storage().persistent().set(&DataKey::MediationFeeBps, &fee_bps);
+    }
+
+    fn set_authorized(e: Env, admin: Address, account: Address, authorized: bool) {
+        balance::set_authorized(&e, &admin, &account, authorized)
+    }
+
+    fn increase_allowance(e: Env, from: Address, spender: Address, amount: i128) {
+        allowance::increase_allowance(&e, &from, &spender, amount)
+    }
+
+    fn decrease_allowance(e: Env, from: Address, spender: Address, amount: i128) {
+        allowance::decrease_allowance(&e, &from, &spender, amount)
+    }
+
+    fn revoke_all_allowances(e: Env, from: Address) {
+        allowance::revoke_all_allowances(&e, &from)
+    }
+
+    fn enable_whitelist(e: Env, admin: Address) {
+        whitelist::enable(&e, &admin)
+    }
+
+    fn disable_whitelist(e: Env, admin: Address) {
+        whitelist::disable(&e, &admin)
+    }
+
+    fn add_to_whitelist(e: Env, admin: Address, account: Address) {
+        whitelist::add(&e, &admin, &account)
+    }
+
+    fn remove_from_whitelist(e: Env, admin: Address, account: Address) {
+        whitelist::remove(&e, &admin, &account)
+    }
+
+    fn is_whitelisted(e: Env, account: Address) -> bool {
+        whitelist::is_whitelisted(&e, &account)
+    }
+
+    fn set_protocol_fee(e: Env, admin: Address, fee_bps: u32, treasury: Address) {
+        admin::check_admin(&e, &admin);
+        e.storage().persistent().set(&DataKey::FeeBps, &fee_bps);
+        e.storage().persistent().set(&DataKey::TreasuryAddress, &treasury);
+    }
+
+    fn trigger_auto_release(e: Env, escrow_id: u32) {
+        escrow::trigger_auto_release(e, escrow_id)
     }
 }

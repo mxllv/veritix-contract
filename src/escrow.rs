@@ -1,5 +1,5 @@
 use soroban_sdk::{contracttype, token, Address, Bytes, Env, Vec};
-use crate::storage_types::{DataKey, MAX_ESCROWS_PER_DEPOSITOR};
+use crate::storage_types::{DataKey, MAX_ESCROWS_PER_DEPOSITOR, MAX_MEMO_BYTES};
 
 #[contracttype]
 #[derive(Clone)]
