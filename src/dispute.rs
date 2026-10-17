@@ -54,13 +54,24 @@ fn write_dispute(e: &Env, escrow_id: u64, record: &DisputeRecord) {
     bump_persistent(e, &key);
 }
 
+/// The storage key `escrow.rs` stores escrow `escrow_id` under.
+///
+/// # Panics
+///
+/// With `EscrowNotFound` when `escrow_id` is too large to be an escrow id.
+fn escrow_key(escrow_id: u64) -> DataKey {
+    let id = u32::try_from(escrow_id)
+        .unwrap_or_else(|_| panic!("EscrowNotFound: no escrow {}", escrow_id));
+    DataKey::EscrowRecord(id)
+}
+
 /// Reads the escrow a dispute settles, extending its storage TTL.
 ///
 /// # Panics
 ///
 /// With `EscrowNotFound` when no escrow `escrow_id` exists.
 fn read_escrow(e: &Env, escrow_id: u64) -> EscrowRecord {
-    let key = DataKey::Escrow(escrow_id);
+    let key = escrow_key(escrow_id);
     let record = e
         .storage()
         .persistent()
@@ -72,7 +83,7 @@ fn read_escrow(e: &Env, escrow_id: u64) -> EscrowRecord {
 
 /// Writes an escrow record, extending its storage TTL.
 fn write_escrow(e: &Env, escrow_id: u64, record: &EscrowRecord) {
-    let key = DataKey::Escrow(escrow_id);
+    let key = escrow_key(escrow_id);
     e.storage().persistent().set(&key, record);
     bump_persistent(e, &key);
 }

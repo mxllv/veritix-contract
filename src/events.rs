@@ -129,3 +129,42 @@ pub struct MultiEscrowReleased {
     pub id: u64,
     pub total: i128,
 }
+
+/// Tokens were burned from `from`.
+///
+/// Topics are `["burn", from: Address]` and the data is `[amount: i128]`, the
+/// SEP-41 burn event shape.
+#[contractevent(data_format = "vec")]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Burn {
+    #[topic]
+    pub from: Address,
+    pub amount: i128,
+}
+
+/// `from` approved `spender` to move up to `amount` until `expiration_ledger`.
+///
+/// Topics are `["approve", from: Address, spender: Address]` and the data is
+/// `[amount: i128, expiration_ledger: u32]`, the SEP-41 approve event shape.
+#[contractevent(data_format = "vec")]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Approve {
+    #[topic]
+    pub from: Address,
+    #[topic]
+    pub spender: Address,
+    pub amount: i128,
+    pub expiration_ledger: u32,
+}
+
+/// `owner` revoked every allowance they had granted.
+///
+/// Topics are `["allowances_revoked", owner: Address]` and the data is
+/// `[count: u32]`, the number of allowances that were revoked.
+#[contractevent(data_format = "vec")]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AllowancesRevoked {
+    #[topic]
+    pub owner: Address,
+    pub count: u32,
+}
