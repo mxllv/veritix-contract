@@ -26,7 +26,7 @@ pub fn is_admin(e: &Env, caller: &Address) -> bool {
     e.storage()
         .persistent()
         .get::<_, Address>(&DataKey::Admin)
-        == Some(*caller)
+        == Some(caller.clone())
 }
 
 /// Requires that `caller` is the stored admin and authorized this invocation.
