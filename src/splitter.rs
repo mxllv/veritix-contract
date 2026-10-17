@@ -35,15 +35,12 @@ pub fn replace_split_recipient(
     let recipient_index = split
         .recipients
         .iter()
-        .position(|recipient| recipient == new_old(old))
+        .position(|recipient| &recipient == old)
+        .and_then(|index| u32::try_from(index).ok())
         .unwrap_or_else(|| panic!("SplitRecipientNotFound: recipient is not in split {}", split_id));
 
     split.recipients.set(recipient_index, new.clone());
     e.storage().persistent().set(&key, &split);
-}
-
-fn new_old(address: &Address) -> Address {
-    address.clone()
 }
 
 #[cfg(test)]
