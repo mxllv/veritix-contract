@@ -907,3 +907,42 @@ mod tests {
         assert!(!f.client.is_escrow_settled(&id));
     }
 }
+
+#[cfg(test)]
+pub mod testing {
+    use super::*;
+    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::Bytes;
+
+    /// A registered, initialized contract with a known admin.
+    pub struct Fixture {
+        pub e: Env,
+        pub client: VeriTixPayClient<'static>,
+        pub contract_id: Address,
+        pub admin: Address,
+    }
+
+    impl Fixture {
+        pub fn new() -> Self {
+            let e = Env::default();
+            e.mock_all_auths();
+            let contract_id = e.register(VeriTixPay, ());
+            let client = VeriTixPayClient::new(&e, &contract_id);
+            let admin = Address::generate(&e);
+            client.initialize(&admin);
+            Fixture { e, client, contract_id, admin }
+        }
+
+        /// A new account holding `amount` tokens.
+        pub fn fund(&self, amount: i128) -> Address {
+            let holder = Address::generate(&self.e);
+            self.client.mint(&self.admin, &holder, &amount);
+            holder
+        }
+    }
+
+    /// `len` bytes, all set to `fill`.
+    pub fn bytes_of_len(e: &Env, len: u32, fill: u8) -> Bytes {
+        Bytes::from_slice(e, &std::vec![fill; len as usize])
+    }
+}
