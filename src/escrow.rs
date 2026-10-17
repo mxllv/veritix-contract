@@ -25,7 +25,12 @@ pub fn value_locked(e: &Env) -> i128 {
 fn store_new(e: &Env, record: &EscrowRecord) -> u32 {
     let id = count(e);
     e.storage().persistent().set(&DataKey::EscrowRecord(id), record);
-    e.storage().persistent().set(&DataKey::EscrowCount, &id + 1);
+    let next_id = id
+        .checked_add(1)
+        .unwrap_or_else(|| panic!("EscrowIdOverflow: escrow id would overflow u32"));
+    e.storage()
+        .persistent()
+        .set(&DataKey::EscrowCount, &next_id);
     id
 }
 

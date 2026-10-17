@@ -50,6 +50,7 @@ fn escrow(e: &Env, depositor: &Address, beneficiary: &Address, amount: i128) -> 
         beneficiary: beneficiary.clone(),
         token: Address::generate(e),
         amount,
+        deadline_ledger: e.ledger().sequence() + 1_000,
         status: EscrowStatus::Active,
         created_ledger: e.ledger().sequence(),
     }
