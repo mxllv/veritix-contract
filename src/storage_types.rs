@@ -19,8 +19,6 @@ pub enum DataKey {
     InitializedAtLedger,
 
     // --- Balances ------------------------------------------------------------
-    /// Token balance of a single account.
-    Balance(Address),
     /// Token balance key used by the balance module.
     BalanceOf(Address),
     /// Spending allowance granted by `owner` to `spender`.
@@ -81,10 +79,6 @@ pub enum DataKey {
     MultiEscrow(u64),
     /// Number of multi-escrows created so far (also the next id).
     MultiEscrowCount,
-
-    // --- Counters ------------------------------------------------------------
-    /// A monotonically increasing per-address counter.
-    Counter(Address),
 }
 
 /// Where an escrow is in its lifecycle.

@@ -20,6 +20,9 @@ pub fn create(
 ) -> u64 {
     payer.require_auth();
     require_positive_amount(amount);
+    if payer == payee {
+        panic!("RecurringSameParty: payer and payee must be different addresses");
+    }
     if interval_ledgers == 0 {
         panic!("RecurringIntervalInvalid: interval must be positive");
     }

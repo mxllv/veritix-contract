@@ -176,6 +176,9 @@ pub fn create(
     deadline_ledger: u32,
 ) -> u32 {
     require_positive_amount(amount);
+    if depositor == beneficiary {
+        panic!("EscrowSameParty: depositor and beneficiary must be different addresses");
+    }
     depositor.require_auth();
 
     // Move the funds before recording the escrow. A token transfer that fails
