@@ -15,6 +15,8 @@ pub enum DataKey {
     AdminActiveAfterLedger,
     /// The second signer required alongside the admin for a clawback.
     ClawbackCosigner,
+    /// The ledger at which the contract was initialized.
+    InitializedAtLedger,
 
     // --- Balances ------------------------------------------------------------
     /// Token balance of a single account.
@@ -23,6 +25,8 @@ pub enum DataKey {
     BalanceOf(Address),
     /// Spending allowance granted by `owner` to `spender`.
     Allowance(Address, Address),
+    /// The spenders an owner currently has an allowance with, in grant order.
+    AllowanceSpenders(Address),
     /// The portion of an account's balance held by an active escrow.
     EscrowLocked(Address),
 
