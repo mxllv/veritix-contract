@@ -26,6 +26,17 @@ pub struct Transfer {
     pub amount: i128,
 }
 
+/// Tokens were clawed back from `from` by the admin.
+///
+/// Topics are `["clawback", from: Address]` and the data is `[amount: i128]`.
+#[contractevent(data_format = "vec")]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Clawback {
+    #[topic]
+    pub from: Address,
+    pub amount: i128,
+}
+
 /// A new escrow was created.
 ///
 /// Topics are `["escrow_created", depositor: Address, beneficiary: Address]`

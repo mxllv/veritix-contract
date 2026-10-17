@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, Vec};
+use soroban_sdk::{contracttype, Address, Env, Vec};
 
 /// Every persistent storage key the contract owns.
 ///
@@ -244,4 +244,27 @@ pub struct MultiEscrowRecord {
     pub total: i128,
     /// Current lifecycle state.
     pub status: MultiEscrowStatus,
+}
+
+/// Ledgers of remaining life below which instance storage is extended (~30 days).
+pub const INSTANCE_LIFETIME_THRESHOLD: u32 = 518_400;
+/// How far instance storage is extended once it falls below the threshold.
+pub const INSTANCE_BUMP_AMOUNT: u32 = 2_592_000;
+/// Ledgers of remaining life below which a persistent entry is extended (~120 days).
+pub const PERSISTENT_LIFETIME_THRESHOLD: u32 = 2_073_600;
+/// How far a persistent entry is extended once it falls below the threshold.
+pub const PERSISTENT_BUMP_AMOUNT: u32 = 4_752_000;
+
+/// Extends the life of instance storage, as described in `docs/ttl.md`.
+pub fn bump_instance(e: &Env) {
+    e.storage()
+        .instance()
+        .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+}
+
+/// Extends the life of the persistent entry stored under `key`.
+pub fn bump_persistent(e: &Env, key: &DataKey) {
+    e.storage()
+        .persistent()
+        .extend_ttl(key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
 }

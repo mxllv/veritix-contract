@@ -351,17 +351,15 @@ pub fn resolve_appeal(e: &Env, resolver: Address, escrow_id: u64, winner: Addres
 
 /// Settles the escrow in `winner`'s favour and pays them the escrowed amount.
 ///
-/// Releases the depositor's escrow lock, moves the escrowed amount to the
-/// winner when the winner is the beneficiary (a refund simply leaves the funds
-/// with the depositor), and marks the escrow `Released` or `Refunded`.
+/// Moves the escrowed amount to the winner when the winner is the beneficiary
+/// (a refund simply leaves the funds with the depositor), and marks the escrow
+/// `Released` or `Refunded`.
 fn settle_escrow(e: &Env, escrow_id: u64, winner: &Address, escrow: &EscrowRecord) {
     let depositor = escrow.depositor.clone();
     let amount = escrow.amount;
     crate::validation::require_positive_amount(amount);
 
-    // The lock goes first so the depositor's spendable balance returns; the
-    // transfer then debits the depositor and credits the winner.
-    balance::unlock_from_escrow(e, &depositor, amount);
+    // The transfer debits the depositor and credits the winner.
     if winner == &escrow.beneficiary {
         balance::transfer(e, &depositor, winner, amount);
         write_escrow(
