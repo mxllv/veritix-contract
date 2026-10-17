@@ -63,7 +63,7 @@ fn panics<R>(f: impl FnOnce() -> R) -> bool {
 #[test]
 fn create_stores_the_record_and_returns_id_zero() {
     let (e, depositor, _first, beneficiaries, amounts) = setup();
-    let cid = e.register_contract(None, MultiEscrowHarness);
+    let cid = e.register(MultiEscrowHarness, ());
     let client = MultiEscrowHarnessClient::new(&e, &cid);
 
     let id = client.create(&depositor, &Address::generate(&e), &beneficiaries, &amounts, &1_000);
@@ -80,7 +80,7 @@ fn create_stores_the_record_and_returns_id_zero() {
 #[should_panic(expected = "MultiEscrowSumMismatch")]
 fn amounts_not_summing_to_the_deposit_panic() {
     let (e, depositor, _first, beneficiaries, _amounts) = setup();
-    let cid = e.register_contract(None, MultiEscrowHarness);
+    let cid = e.register(MultiEscrowHarness, ());
     let client = MultiEscrowHarnessClient::new(&e, &cid);
     // amounts sum to 900 but the declared total is 1_000.
     let bad_amounts = vec![&e, 400i128, 500i128];
@@ -92,7 +92,7 @@ fn amounts_not_summing_to_the_deposit_panic() {
 #[should_panic(expected = "MultiEscrowSumMismatch")]
 fn amounts_summing_above_the_deposit_panic() {
     let (e, depositor, _first, beneficiaries, _amounts) = setup();
-    let cid = e.register_contract(None, MultiEscrowHarness);
+    let cid = e.register(MultiEscrowHarness, ());
     let client = MultiEscrowHarnessClient::new(&e, &cid);
     // amounts sum to 1_200 but the declared total is 1_000.
     let amounts = vec![&e, 600i128, 600i128];
@@ -104,7 +104,7 @@ fn amounts_summing_above_the_deposit_panic() {
 #[should_panic(expected = "MultiEscrowLengthMismatch")]
 fn mismatched_vector_lengths_panic() {
     let (e, depositor, _first, beneficiaries, _amounts) = setup();
-    let cid = e.register_contract(None, MultiEscrowHarness);
+    let cid = e.register(MultiEscrowHarness, ());
     let client = MultiEscrowHarnessClient::new(&e, &cid);
     let amounts = vec![&e, 400i128];
 
@@ -114,7 +114,7 @@ fn mismatched_vector_lengths_panic() {
 #[test]
 fn a_valid_release_drains_the_record_to_zero() {
     let (e, depositor, _first, beneficiaries, amounts) = setup();
-    let cid = e.register_contract(None, MultiEscrowHarness);
+    let cid = e.register(MultiEscrowHarness, ());
     let client = MultiEscrowHarnessClient::new(&e, &cid);
 
     let id = client.create(&depositor, &Address::generate(&e), &beneficiaries, &amounts, &1_000);
@@ -133,7 +133,7 @@ fn a_valid_release_drains_the_record_to_zero() {
 #[should_panic(expected = "MultiEscrowNotActive")]
 fn a_settled_record_cannot_be_released() {
     let (e, depositor, _first, beneficiaries, amounts) = setup();
-    let cid = e.register_contract(None, MultiEscrowHarness);
+    let cid = e.register(MultiEscrowHarness, ());
     let client = MultiEscrowHarnessClient::new(&e, &cid);
 
     let id = client.create(&depositor, &Address::generate(&e), &beneficiaries, &amounts, &1_000);
@@ -145,7 +145,7 @@ fn a_settled_record_cannot_be_released() {
 #[should_panic(expected = "MultiEscrowNotActive")]
 fn a_released_record_cannot_be_refunded() {
     let (e, depositor, _first, beneficiaries, amounts) = setup();
-    let cid = e.register_contract(None, MultiEscrowHarness);
+    let cid = e.register(MultiEscrowHarness, ());
     let client = MultiEscrowHarnessClient::new(&e, &cid);
 
     let id = client.create(&depositor, &Address::generate(&e), &beneficiaries, &amounts, &1_000);
@@ -156,7 +156,7 @@ fn a_released_record_cannot_be_refunded() {
 #[test]
 fn a_stranger_cannot_release() {
     let (e, depositor, _first, beneficiaries, amounts) = setup();
-    let cid = e.register_contract(None, MultiEscrowHarness);
+    let cid = e.register(MultiEscrowHarness, ());
     let client = MultiEscrowHarnessClient::new(&e, &cid);
     let stranger = Address::generate(&e);
 
@@ -172,7 +172,7 @@ fn a_stranger_cannot_release() {
 #[should_panic(expected = "MultiEscrowNotFound")]
 fn get_panics_on_an_unknown_id() {
     let (e, _depositor, _first, _beneficiaries, _amounts) = setup();
-    let cid = e.register_contract(None, MultiEscrowHarness);
+    let cid = e.register(MultiEscrowHarness, ());
     let client = MultiEscrowHarnessClient::new(&e, &cid);
 
     let _ = client.get(&42);
@@ -182,7 +182,7 @@ fn get_panics_on_an_unknown_id() {
 #[should_panic(expected = "MultiEscrowNotFound")]
 fn release_panics_on_an_unknown_id() {
     let (e, depositor, _first, _beneficiaries, _amounts) = setup();
-    let cid = e.register_contract(None, MultiEscrowHarness);
+    let cid = e.register(MultiEscrowHarness, ());
     let client = MultiEscrowHarnessClient::new(&e, &cid);
 
     client.release(&depositor, &42);
