@@ -33,6 +33,8 @@ pub enum DataKey {
     WhitelistEnabled,
     /// Whether an account is frozen and cannot move tokens.
     Frozen(Address),
+    /// Whether an account is authorized to move tokens. Absent means authorized.
+    Authorized(Address),
 
     // --- Supply --------------------------------------------------------------
     /// Total tokens in circulation.
@@ -40,9 +42,21 @@ pub enum DataKey {
     /// Hard supply cap. Unset or 0 means supply is uncapped.
     MaxSupply,
 
+    // --- Metadata ------------------------------------------------------------
+    /// The token name.
+    Name,
+    /// The token symbol.
+    Symbol,
+    /// The number of decimals the token uses.
+    Decimals,
+
     // --- Escrows and disputes ------------------------------------------------
     /// An escrow held under its id, for lifecycle and settlement tracking.
     Escrow(u64),
+    /// Number of escrows created so far (also the next escrow id).
+    EscrowCount,
+    /// Total token amount still held across all active escrows.
+    EscrowValueLocked,
 /// A payment split held under its id.
     Split(u64),
     /// The retained execution history for a recurring schedule.
