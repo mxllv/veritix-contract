@@ -44,14 +44,6 @@ pub fn allowance(e: &Env, from: &Address, spender: &Address) -> i128 {
     }
 }
 
-/// The ledger at which the `from`/`spender` allowance expires.
-pub fn allowance_expiration(e: &Env, from: &Address, spender: &Address) -> u32 {
-    e.storage()
-        .persistent()
-        .get(&DataKey::AllowanceExpiration(from.clone(), spender.clone()))
-        .unwrap_or(0)
-}
-
 /// Every spender `owner` currently holds a live allowance with, in grant order.
 pub fn spenders_for(e: &Env, owner: &Address) -> Vec<Address> {
     e.storage()
@@ -98,9 +90,6 @@ fn store(e: &Env, owner: &Address, spender: &Address, amount: i128, expiration_l
         e.storage()
             .persistent()
             .remove(&DataKey::Allowance(owner.clone(), spender.clone()));
-        e.storage()
-            .persistent()
-            .remove(&DataKey::AllowanceExpiration(owner.clone(), spender.clone()));
         remove_spender(e, owner, spender);
     } else {
         e.storage().persistent().set(
@@ -109,10 +98,6 @@ fn store(e: &Env, owner: &Address, spender: &Address, amount: i128, expiration_l
                 amount,
                 expiration_ledger,
             },
-        );
-        e.storage().persistent().set(
-            &DataKey::AllowanceExpiration(owner.clone(), spender.clone()),
-            &expiration_ledger,
         );
         add_spender(e, owner, spender);
     }
@@ -174,13 +159,8 @@ pub fn consume_allowance(e: &Env, owner: &Address, spender: &Address, amount: i1
         );
     }
     let remaining = current - amount;
-    store(
-        e,
-        owner,
-        spender,
-        remaining,
-        allowance_expiration(e, owner, spender),
-    );
+    let expiration_ledger = load(e, owner, spender).expiration_ledger;
+    store(e, owner, spender, remaining, expiration_ledger);
     remaining
 }
 
@@ -203,9 +183,6 @@ pub fn revoke_all_allowances(e: &Env, owner: &Address) -> u32 {
         e.storage()
             .persistent()
             .remove(&DataKey::Allowance(owner.clone(), spender.clone()));
-        e.storage()
-            .persistent()
-            .remove(&DataKey::AllowanceExpiration(owner.clone(), spender.clone()));
     }
     e.storage()
         .persistent()

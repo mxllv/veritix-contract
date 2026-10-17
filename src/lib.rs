@@ -58,4 +58,8 @@ mod allowance_test;
 #[cfg(test)]
 mod dispute_test;
 #[cfg(test)]
+mod event_test;
+#[cfg(test)]
 mod multi_escrow_test;
+#[cfg(test)]
+mod sep41_test;
