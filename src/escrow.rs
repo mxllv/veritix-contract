@@ -186,6 +186,7 @@ pub fn create(
             amount,
             deadline_ledger,
             status: EscrowStatus::Active,
+            created_ledger: e.ledger().sequence(),
         },
     );
     increase_value_locked(e, amount);

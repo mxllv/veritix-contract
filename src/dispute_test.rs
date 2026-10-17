@@ -77,7 +77,12 @@ fn balance_of(e: &Env, cid: &Address, account: &Address) -> i128 {
 }
 
 fn escrow_locked(e: &Env, cid: &Address, account: &Address) -> i128 {
-    e.as_contract(cid, || balance::escrow_locked(e, account))
+    e.as_contract(cid, || {
+        e.storage()
+            .persistent()
+            .get(&DataKey::EscrowLocked(account.clone()))
+            .unwrap_or(0)
+    })
 }
 
 fn escrow_status(e: &Env, cid: &Address, id: u64) -> EscrowStatus {

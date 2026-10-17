@@ -342,7 +342,7 @@ mod tests {
         fn new() -> Self {
             let e = Env::default();
             e.mock_all_auths();
-            let contract_id = e.register_contract(None, VeriTixPay);
+            let contract_id = e.register(VeriTixPay, ());
             let client = VeriTixPayClient::new(&e, &contract_id);
             let admin = Address::generate(&e);
             client.initialize(&admin);
@@ -408,7 +408,7 @@ mod tests {
         let xdr::ContractEventBody::V0(body) = &last.body else {
             panic!("expected a v0 contract event");
         };
-        body.topics.clone()
+        body.topics.to_vec()
     }
 
     fn last_data(e: &Env) -> xdr::ScVal {
@@ -417,7 +417,7 @@ mod tests {
         let xdr::ContractEventBody::V0(body) = &last.body else {
             panic!("expected a v0 contract event");
         };
-        body.data.clone().expect("an event with no data")
+        body.data.clone()
     }
 
     fn panics<R>(f: impl FnOnce() -> R) -> bool {
@@ -429,7 +429,7 @@ mod tests {
     #[test]
     fn create_escrow_holds_the_funds_for_the_beneficiary() {
         let f = Fixture::new();
-        let (_depositor, beneficiary, _token_address, token, _id) = f.escrow(1_000);
+        let (depositor, beneficiary, _token_address, token, _id) = f.escrow(1_000);
 
         assert_eq!(token.balance(&depositor), 0);
         assert_eq!(token.balance(&f.contract), 1_000);
@@ -483,7 +483,7 @@ mod tests {
     #[test]
     fn the_depositor_can_release() {
         let f = Fixture::new();
-        let (_depositor, _beneficiary, _token_address, token, id) = f.escrow(1_000);
+        let (depositor, beneficiary, _token_address, token, id) = f.escrow(1_000);
 
         f.client.release_escrow(&depositor, &id);
 
@@ -577,7 +577,7 @@ mod tests {
     #[test]
     fn refund_pays_the_depositor_everything_held() {
         let f = Fixture::new();
-        let (_depositor, _beneficiary, _token_address, token, id) = f.escrow(1_000);
+        let (depositor, beneficiary, _token_address, token, id) = f.escrow(1_000);
 
         f.client.refund_escrow(&depositor, &id);
 
@@ -624,7 +624,7 @@ mod tests {
     #[test]
     fn a_refunded_escrow_cannot_be_released() {
         let f = Fixture::new();
-        let (_depositor, _beneficiary, _token_address, token, id) = f.escrow(1_000);
+        let (depositor, beneficiary, _token_address, token, id) = f.escrow(1_000);
         f.client.refund_escrow(&depositor, &id);
 
         assert!(panics(|| {
@@ -799,7 +799,7 @@ mod tests {
     #[test]
     fn the_depositor_can_partially_release() {
         let f = Fixture::new();
-        let (_depositor, _beneficiary, _token_address, token, id) = f.escrow(1_000);
+        let (depositor, beneficiary, _token_address, token, id) = f.escrow(1_000);
 
         f.client.release_partial_escrow(&depositor, &id, &250);
 
