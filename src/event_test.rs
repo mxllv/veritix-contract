@@ -9,7 +9,7 @@ use crate::contract::testing::{bytes_of_len, Fixture};
 use crate::contract::VeriTixPayClient;
 use crate::storage_types::DataKey;
 use soroban_sdk::testutils::{Address as _, Events as _};
-use soroban_sdk::{symbol_short, vec, xdr, Address, Env, FromVal};
+use soroban_sdk::{symbol_short, vec, xdr, Address, Env, FromVal, IntoVal};
 
 /// The topics and data of the most recent event.
 fn last_event(e: &Env) -> (std::vec::Vec<xdr::ScVal>, xdr::ScVal) {
@@ -45,7 +45,7 @@ fn mint_event_matches_the_sep41_shape() {
             xdr::ScVal::from_val(&f.e, &holder.to_val()),
         ]
     );
-    assert_eq!(data, xdr::ScVal::from_val(&f.e, &1_000i128.to_val()));
+    assert_eq!(data, xdr::ScVal::from_val(&f.e, &1_000i128.into_val(&f.e)));
 }
 
 #[test]
@@ -63,7 +63,7 @@ fn burn_event_matches_the_sep41_shape() {
             xdr::ScVal::from_val(&f.e, &holder.to_val()),
         ]
     );
-    assert_eq!(data, xdr::ScVal::from_val(&f.e, &400i128.to_val()));
+    assert_eq!(data, xdr::ScVal::from_val(&f.e, &400i128.into_val(&f.e)));
 }
 
 #[test]
@@ -83,7 +83,7 @@ fn transfer_event_matches_the_sep41_shape() {
             xdr::ScVal::from_val(&f.e, &to.to_val()),
         ]
     );
-    assert_eq!(data, xdr::ScVal::from_val(&f.e, &250i128.to_val()));
+    assert_eq!(data, xdr::ScVal::from_val(&f.e, &250i128.into_val(&f.e)));
 }
 
 #[test]
@@ -106,7 +106,7 @@ fn transfer_from_emits_the_same_transfer_event_as_transfer() {
             xdr::ScVal::from_val(&f.e, &to.to_val()),
         ]
     );
-    assert_eq!(data, xdr::ScVal::from_val(&f.e, &250i128.to_val()));
+    assert_eq!(data, xdr::ScVal::from_val(&f.e, &250i128.into_val(&f.e)));
 }
 
 #[test]
@@ -129,7 +129,7 @@ fn transfer_with_memo_keeps_the_standard_topics_and_adds_the_memo() {
     );
     let items = last_event_data_items(&f.e);
     assert_eq!(items.len(), 2);
-    assert_eq!(items[0], xdr::ScVal::from_val(&f.e, &250i128.to_val()));
+    assert_eq!(items[0], xdr::ScVal::from_val(&f.e, &250i128.into_val(&f.e)));
     assert_eq!(items[1], xdr::ScVal::from_val(&f.e, &note.to_val()));
 }
 
@@ -170,7 +170,7 @@ fn clawback_event_matches_the_sep41_shape() {
             xdr::ScVal::from_val(&f.e, &from.to_val()),
         ]
     );
-    assert_eq!(data, xdr::ScVal::from_val(&f.e, &400i128.to_val()));
+    assert_eq!(data, xdr::ScVal::from_val(&f.e, &400i128.into_val(&f.e)));
 }
 
 #[test]
@@ -191,7 +191,7 @@ fn burn_from_emits_the_same_burn_event_as_burn() {
             xdr::ScVal::from_val(&f.e, &from.to_val()),
         ]
     );
-    assert_eq!(data, xdr::ScVal::from_val(&f.e, &400i128.to_val()));
+    assert_eq!(data, xdr::ScVal::from_val(&f.e, &400i128.into_val(&f.e)));
 }
 
 #[test]
@@ -223,7 +223,7 @@ fn escrow_locks_do_not_change_event_shapes() {
 
     let (topics, data) = last_event(&f.e);
     assert_eq!(topics[0], xdr::ScVal::from_val(&f.e, &symbol_short!("transfer").to_val()));
-    assert_eq!(data, xdr::ScVal::from_val(&f.e, &100i128.to_val()));
+    assert_eq!(data, xdr::ScVal::from_val(&f.e, &100i128.into_val(&f.e)));
     assert_eq!(f.e.events().all().events().len(), 2);
 }
 
@@ -238,7 +238,7 @@ fn supply_cap_never_appears_in_an_event() {
 
     let (topics, data) = last_event(&f.e);
     assert_eq!(topics[0], xdr::ScVal::from_val(&f.e, &symbol_short!("mint").to_val()));
-    assert_eq!(data, xdr::ScVal::from_val(&f.e, &1_000i128.to_val()));
+    assert_eq!(data, xdr::ScVal::from_val(&f.e, &1_000i128.into_val(&f.e)));
 }
 
 #[test]
